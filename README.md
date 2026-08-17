@@ -12,6 +12,7 @@ LLMs handle read-only database work: schema exploration, query writing, data ana
 - **Write and destructive queries** go through a two-step confirmation: the agent previews the change, you approve it.
 - **Token-bound execution.** Approval tokens encode the exact SQL and connection. Swap the query or target a different database, and the server rejects it.
 - **Named connections** via `DB_<NAME>=<url>` environment variables. No config files to manage.
+- **Credential vault** for secure storage. Register connections with aliases, and the MCP stores credentials in the system's secure credential manager. No credentials in env vars, logs, or tool responses.
 - **Any SQLAlchemy-compatible database:** PostgreSQL, SQLite, Oracle, MySQL, SQL Server, Snowflake, or whatever you install the driver for.
 
 ## Supported databases
@@ -116,14 +117,18 @@ Add to `~/.config/opencode/opencode.jsonc` or `.opencode.json` in your project:
 
 ## Tools
 
-| Tool               | Description                                              |
-|--------------------|----------------------------------------------------------|
-| `list_connections` | List all configured DB connections                       |
-| `list_tables`      | List tables and views in a connection                    |
-| `describe_table`   | Show columns, PK, FKs, indexes for a table               |
-| `query`            | Execute read-only SQL (SELECT, EXPLAIN, etc.)            |
-| `preview_mutation` | Preview a write/destructive query, get a confirmation token |
-| `execute_mutation` | Execute after you confirm (requires token from above)    |
+| Tool                       | Description                                              |
+|----------------------------|----------------------------------------------------------|
+| `list_connections`         | List all configured DB connections (env + vault)        |
+| `list_tables`              | List tables and views in a connection                    |
+| `describe_table`           | Show columns, PK, FKs, indexes for a table               |
+| `query`                    | Execute read-only SQL (SELECT, EXPLAIN, etc.)            |
+| `preview_mutation`         | Preview a write/destructive query, get a confirmation token |
+| `execute_mutation`         | Execute after you confirm (requires token from above)    |
+| `vault_register_connection` | Register a connection in the credential vault            |
+| `vault_register_from_path` | Register a connection from a config file                 |
+| `vault_list`               | List all registered vault aliases                         |
+| `vault_revoke`             | Remove a connection from the vault                        |
 
 ## How writes get approved
 
@@ -162,6 +167,87 @@ The SQLAlchemy dialect registry resolves the driver from the URL prefix.
 |----------------|---------|--------------------------------------------------|
 | `DB_<NAME>`    | —       | Connection URL for a named database              |
 | `DB_MAX_ROWS`  | `500`   | Max rows returned per `query` call               |
+| `DB_MCP_ALLOWED_ROOTS` | — | Colon-separated list of directories for vault file registration |
+
+## Credential Vault
+
+The credential vault lets you store database credentials securely using your system's credential manager (macOS Keychain, Linux Secret Service, Windows Credential Manager). Once stored, credentials are **never** visible to the agent or in tool responses, logs, or traces.
+
+### Why use the vault
+
+- **Security:** Credentials are stored using the OS credential manager, not in plaintext files or environment variables
+- **Isolation:** The MCP server is the only component that ever holds plaintext credentials
+- **Clean separation:** Use descriptive aliases instead of exposing connection strings in agent conversations
+
+### Vault tools
+
+| Tool | Description |
+|------|-------------|
+| `vault_register_connection` | Register a connection by providing JDBC URL, username, and password directly |
+| `vault_register_from_path` | Register a connection by reading a config file (.env, .properties, .yml) |
+| `vault_list` | List all registered vault aliases with metadata |
+| `vault_revoke` | Remove a connection from the vault |
+
+### Using the vault
+
+#### Register a connection directly
+
+```bash
+# The agent calls:
+vault_register_connection(
+  alias="prod",
+  jdbc_url="postgresql://user:password@host:5432/mydb",
+  username="user",
+  password="password"
+)
+# Returns: {"alias": "prod", "status": "registered"}
+# The credentials are now stored securely and never echoed back
+```
+
+Then use the alias with any query tool:
+```bash
+query(connection_name="prod", sql="SELECT * FROM users")
+```
+
+#### Register from a config file
+
+First, configure the allowed directories:
+```bash
+export DB_MCP_ALLOWED_ROOTS="/path/to/configs:/another/path"
+```
+
+Then register:
+```bash
+# Agent calls:
+vault_register_from_path(
+  alias="prod",
+  file_path="/path/to/configs/prod.env"
+)
+```
+
+Supported file formats:
+- **.env:** `DB_URL=postgresql://...`, `DB_USERNAME=...`, `DB_PASSWORD=...`
+- **.properties:** `jdbc.url=postgresql://...`, `jdbc.username=...`, `jdbc.password=...`
+- **.yml/.yaml:** Spring Boot style with `spring.datasource.url/username/password`
+
+#### List and revoke
+
+```bash
+# List all vault aliases
+vault_list()
+# Returns: {"aliases": [{"name": "prod", "created_at": "...", "source": "direct"}, ...]}
+
+# Remove a connection
+vault_revoke(alias="prod")
+# Returns: {"alias": "prod", "status": "revoked", "existed": true}
+```
+
+### Security requirements
+
+- The `vault_register_from_path` tool **requires** `DB_MCP_ALLOWED_ROOTS` to be set
+- Paths outside the allow-listed roots are **rejected** — no exceptions
+- All logging and exception messages are **redacted** to prevent credential leaks
+- No tool returns plaintext credentials under any circumstance
 
 ## Contributing
 

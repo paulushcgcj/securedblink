@@ -12,6 +12,7 @@ dependencies = [
     "mcp[cli]>=1.0",
     "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9",   # PostgreSQL, included by default
+    "keyring>=24.0",          # Secure credential storage
     # SQLite is built into Python, no extra dep needed
 ]
 
@@ -19,6 +20,7 @@ dependencies = [
 oracle = ["oracledb>=2.0"]
 mysql = ["PyMySQL>=1.1"]
 mssql = ["pyodbc>=5.0"]
+yaml = ["pyyaml>=6.0"]  # For parsing .yml/.yaml config files
 dev = ["pytest>=8.0", "pytest-cov>=5.0.0", "pytest-mock>=3.14.0"]
 
 [tool.pytest.ini_options]

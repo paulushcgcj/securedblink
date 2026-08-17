@@ -1,24 +1,37 @@
 """db-mcp: MCP server for multi-database access with LLM permission gating.
 
 Tools:
-  list_connections   list configured DB connections
-  list_tables        list tables/views in a connection
-  describe_table     describe columns, PKs, FKs, indexes
-  query              execute read-only SQL (SELECT etc.)
-  preview_mutation   preview a write/destructive query, get confirmation token
-  execute_mutation   execute after user confirms (requires token)
+  list_connections         list configured DB connections
+  list_tables              list tables/views in a connection
+  describe_table           describe columns, PKs, FKs, indexes
+  query                    execute read-only SQL (SELECT etc.)
+  preview_mutation         preview a write/destructive query, get confirmation token
+  execute_mutation         execute after user confirms (requires token)
+  vault_register_connection register a connection with credentials in the vault
+  vault_register_from_path register a connection from a config file in the vault
+  vault_list               list all registered vault aliases
+  vault_revoke             remove a connection from the vault
 """
 
 import os
 import secrets
 import time
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Optional
 
 from mcp.server.fastmcp import FastMCP
 from sqlalchemy import inspect as sa_inspect, text
 
 from db_mcp.classifier import classify
 from db_mcp.connections import ConnectionManager
+from db_mcp.vault import (
+    get_vault_store,
+    get_resolver,
+    parse_config_file,
+    validate_and_get_absolute_path,
+    redact_exception,
+    redact_for_logging,
+)
+from db_mcp.vault.store import InsecureKeyringError, verify_secure_backend
 
 # ---------------------------------------------------------------------------
 # Server
@@ -47,6 +60,15 @@ You have access to one or more databases via db-mcp.
 
 _db = ConnectionManager()
 _MAX_ROWS = int(os.getenv("DB_MAX_ROWS", "500"))
+_vault = get_vault_store()
+_resolver = get_resolver()
+
+# Verify secure keyring backend on startup (only when vault is used)
+try:
+    verify_secure_backend()
+except InsecureKeyringError:
+    # Don't fail startup - vault tools will fail when called
+    pass
 
 
 class _PendingToken(NamedTuple):
@@ -84,22 +106,217 @@ def _purge_tokens() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Tools
+# Vault Tools
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def vault_register_connection(
+    alias: str,
+    jdbc_url: str,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    driver: Optional[str] = None,
+    overwrite: bool = False,
+) -> dict[str, str]:
+    """Register a database connection in the credential vault.
+    
+    Stores the JDBC URL and credentials securely using the system's
+    credential manager. The alias can then be used with other tools
+    instead of passing the connection URL directly.
+    
+    Args:
+        alias: Unique name for this connection (e.g., 'prod', 'local')
+        jdbc_url: JDBC connection URL (e.g., 'postgresql://user:pass@host:5432/db')
+        username: Database username (optional if embedded in URL)
+        password: Database password (optional if embedded in URL)
+        driver: JDBC driver class (optional)
+        overwrite: If True, replace existing alias (default: False)
+        
+    Returns:
+        {"alias": alias, "status": "registered"}
+        
+    Note:
+        Credentials are NEVER returned in responses, logs, or error messages.
+        Use vault_list to see registered aliases.
+    """
+    try:
+        _vault.set(
+            alias=alias,
+            jdbc_url=jdbc_url,
+            username=username,
+            password=password,
+            driver=driver,
+            source="direct",
+            overwrite=overwrite,
+        )
+        return {"alias": alias, "status": "registered"}
+    except Exception as e:
+        return {
+            "error": str(e),
+            "alias": alias,
+            "status": "failed",
+        }
+
+
+@mcp.tool()
+def vault_register_from_path(
+    alias: str,
+    file_path: str,
+    overwrite: bool = False,
+) -> dict[str, str]:
+    """Register a database connection from a configuration file.
+    
+    Reads and parses a configuration file (.env, .properties, .yml, .yaml)
+    to extract connection details, then stores them securely in the vault.
+    
+    Args:
+        alias: Unique name for this connection
+        file_path: Path to configuration file
+        overwrite: If True, replace existing alias (default: False)
+        
+    Returns:
+        {"alias": alias, "status": "registered"}
+        
+    Raises:
+        ValueError: If the file path is outside the allow-listed roots
+                   (configure with DB_MCP_ALLOWED_ROOTS environment variable)
+        
+    Supported formats:
+        - .env: DB_URL=jdbc:... , DB_USERNAME=..., DB_PASSWORD=...
+        - .properties: jdbc.url=jdbc:..., jdbc.username=..., jdbc.password=...
+        - .yml/.yaml: spring.datasource.url: jdbc:..., spring.datasource.username: ...
+        
+    Note:
+        The file must be within a directory listed in DB_MCP_ALLOWED_ROOTS.
+        Set DB_MCP_ALLOWED_ROOTS=/path1:/path2 to configure allowed roots.
+        Credentials are NEVER returned in responses, logs, or error messages.
+    """
+    try:
+        # Validate path is within allow-listed roots
+        absolute_path = validate_and_get_absolute_path(file_path)
+        
+        # Parse the config file
+        config = parse_config_file(absolute_path)
+        
+        if not config.is_valid():
+            return {
+                "error": f"Could not extract valid connection URL from {file_path}",
+                "alias": alias,
+                "status": "failed",
+            }
+        
+        # Store in vault
+        _vault.set(
+            alias=alias,
+            jdbc_url=config.jdbc_url or "",
+            username=config.username,
+            password=config.password,
+            driver=config.driver,
+            source="path",
+            overwrite=overwrite,
+        )
+        
+        return {"alias": alias, "status": "registered"}
+    except ValueError as e:
+        # Path validation errors are expected and should be returned
+        return {
+            "error": str(e),
+            "alias": alias,
+            "status": "failed",
+        }
+    except Exception as e:
+        # For other errors, redact any potential credentials
+        safe_error = redact_exception(e) if isinstance(e, Exception) else str(e)
+        return {
+            "error": safe_error,
+            "alias": alias,
+            "status": "failed",
+        }
+
+
+@mcp.tool()
+def vault_list() -> dict[str, Any]:
+    """List all registered credential vault aliases.
+    
+    Returns metadata for all connections stored in the vault.
+    This includes alias names, creation timestamps, and source type.
+    
+    Returns:
+        {"aliases": [{"name": alias, "created_at": timestamp, "source": source}, ...]}
+        
+    Note:
+        This only lists metadata. Credentials are NEVER returned.
+        Use vault_revoke to remove a connection from the vault.
+    """
+    metadata = _vault.list_all_metadata()
+    aliases = []
+    for alias, meta in sorted(metadata.items()):
+        aliases.append({
+            "name": alias,
+            "created_at": meta.get("created_at", "unknown"),
+            "source": meta.get("source", "unknown"),
+        })
+    return {"aliases": aliases}
+
+
+@mcp.tool()
+def vault_revoke(alias: str) -> dict[str, Any]:
+    """Remove a connection from the credential vault.
+    
+    Deletes the stored credentials and removes the alias from the index.
+    This is idempotent - it succeeds even if the alias doesn't exist.
+    
+    Args:
+        alias: The alias to remove
+        
+    Returns:
+        {"alias": alias, "status": "revoked", "existed": bool}
+    """
+    existed = _vault.exists(alias)
+    _vault.delete(alias)
+    return {
+        "alias": alias,
+        "status": "revoked",
+        "existed": existed,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Connection Tools
 # ---------------------------------------------------------------------------
 
 
 @mcp.tool()
 def list_connections() -> str:
-    """List all database connections available via DB_<NAME> environment variables."""
-    names = _db.names()
-    if not names:
+    """List all database connections (env vars + vault aliases)."""
+    env_names = _db.names()
+    vault_names = _db.vault_names()
+    all_names = _db.all_names()
+    
+    if not env_names and not vault_names:
         return (
-            "No connections configured.\n"
-            "Set DB_<NAME>=<connection_url> environment variables, e.g.:\n"
+            "No connections configured.\n\n"
+            "Option 1: Set DB_<NAME>=<connection_url> environment variables:\n"
             "  DB_PROD=postgresql://user:pass@host:5432/mydb\n"
-            "  DB_LOCAL=sqlite:///./app.db"
+            "  DB_LOCAL=sqlite:///./app.db\n\n"
+            "Option 2: Register via vault:\n"
+            "  Use vault_register_connection to store credentials securely\n"
+            "  Use vault_register_from_path to load from a config file"
         )
-    lines = ["Available connections:"] + [f"  - {n}" for n in names]
+    
+    lines = []
+    
+    if env_names:
+        lines.append("Environment variable connections:")
+        lines += [f"  - {n} (env)" for n in env_names]
+    
+    if vault_names:
+        if lines:
+            lines.append("")
+        lines.append("Vault connections:")
+        lines += [f"  - {n} (vault)" for n in vault_names]
+    
     return "\n".join(lines)
 
 
