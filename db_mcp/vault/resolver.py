@@ -4,7 +4,7 @@ This module provides functionality to resolve connection configurations
 from vault aliases, with fallback to environment variables.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 from db_mcp.vault.store import get_vault_store
 
@@ -20,7 +20,7 @@ class ConnectionResolver:
     def __init__(self) -> None:
         self._vault = get_vault_store()
     
-    def resolve(self, alias: Optional[str] = None, url: Optional[str] = None) -> dict[str, Any]:
+    def resolve(self, alias: str | None = None, url: str | None = None) -> dict[str, Any]:
         """Resolve a connection configuration.
         
         This method attempts to resolve a connection in the following order:
@@ -107,7 +107,7 @@ class ConnectionResolver:
         """
         return self._vault.list_aliases()
     
-    def get_vault_metadata(self, alias: str) -> Optional[dict[str, Any]]:
+    def get_vault_metadata(self, alias: str) -> dict[str, Any] | None:
         """Get metadata for a vault alias.
         
         Args:
@@ -131,7 +131,7 @@ class ConnectionResolver:
 
 
 # Global resolver instance
-_resolver: Optional[ConnectionResolver] = None
+_resolver: ConnectionResolver | None = None
 
 
 def get_resolver() -> ConnectionResolver:

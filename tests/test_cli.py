@@ -1,0 +1,158 @@
+"""Tests for the db-mcp command-line interface (db_mcp.server.cli_main)."""
+
+from unittest.mock import Mock, patch
+
+from db_mcp.server import cli_main
+from db_mcp.vault.store import VaultStoreError
+
+
+class TestCliRegister:
+    """Tests for the ``register`` subcommand."""
+
+    def test_register_success(self, capsys):
+        mock_vault = Mock()
+        with patch("db_mcp.vault.store.get_vault_store", return_value=mock_vault):
+            rc = cli_main(
+                [
+                    "register",
+                    "--alias",
+                    "prod",
+                    "--jdbc-url",
+                    "postgresql://localhost/db",
+                ]
+            )
+        assert rc == 0
+        mock_vault.set.assert_called_once_with(
+            alias="prod",
+            jdbc_url="postgresql://localhost/db",
+            username=None,
+            password=None,
+            driver=None,
+            source="direct",
+            overwrite=False,
+        )
+        assert "registered" in capsys.readouterr().out
+
+    def test_register_full_credentials(self, capsys):
+        mock_vault = Mock()
+        with patch("db_mcp.vault.store.get_vault_store", return_value=mock_vault):
+            rc = cli_main(
+                [
+                    "register",
+                    "--alias",
+                    "prod",
+                    "--jdbc-url",
+                    "postgresql://localhost/db",
+                    "--username",
+                    "app",
+                    "--password",
+                    "secret",
+                    "--driver",
+                    "org.postgresql.Driver",
+                    "--overwrite",
+                ]
+            )
+        assert rc == 0
+        mock_vault.set.assert_called_once_with(
+            alias="prod",
+            jdbc_url="postgresql://localhost/db",
+            username="app",
+            password="secret",
+            driver="org.postgresql.Driver",
+            source="direct",
+            overwrite=True,
+        )
+
+    def test_register_duplicate_returns_error(self, capsys):
+        mock_vault = Mock()
+        mock_vault.set.side_effect = VaultStoreError(
+            "Alias 'prod' already exists. Use overwrite=True to replace."
+        )
+        with patch("db_mcp.vault.store.get_vault_store", return_value=mock_vault):
+            rc = cli_main(
+                [
+                    "register",
+                    "--alias",
+                    "prod",
+                    "--jdbc-url",
+                    "postgresql://localhost/db",
+                ]
+            )
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "already exists" in err
+
+
+class TestCliRegisterFromPath:
+    """Tests for the ``register-from-path`` subcommand."""
+
+    def test_register_from_path_success(self, tmp_path, monkeypatch, capsys):
+        env_file = tmp_path / "conn.env"
+        env_file.write_text("DB_URL=postgresql://user:secret@localhost/db\n")
+        monkeypatch.setenv("DB_MCP_ALLOWED_ROOTS", str(tmp_path))
+
+        mock_vault = Mock()
+        with patch("db_mcp.vault.store.get_vault_store", return_value=mock_vault):
+            rc = cli_main(
+                ["register-from-path", "--alias", "prod", "--file-path", str(env_file)]
+            )
+        assert rc == 0
+        mock_vault.set.assert_called_once()
+        _, kwargs = mock_vault.set.call_args
+        assert kwargs["alias"] == "prod"
+        assert kwargs["source"] == "path"
+        assert kwargs["jdbc_url"] == "postgresql://user:secret@localhost/db"
+        assert kwargs["username"] is None
+        assert "registered" in capsys.readouterr().out
+
+    def test_register_from_path_outside_root(self, tmp_path, monkeypatch, capsys):
+        allowed_dir = tmp_path / "allowed"
+        allowed_dir.mkdir()
+        outside_file = tmp_path / "conn.env"
+        outside_file.write_text("DB_URL=sqlite:///./db.sqlite\n")
+        monkeypatch.setenv("DB_MCP_ALLOWED_ROOTS", str(allowed_dir))
+
+        rc = cli_main(
+            ["register-from-path", "--alias", "prod", "--file-path", str(outside_file)]
+        )
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "not within an allow-listed root" in err
+
+    def test_register_from_path_no_roots(self, tmp_path, monkeypatch, capsys):
+        env_file = tmp_path / "conn.env"
+        env_file.write_text("DB_URL=sqlite:///./db.sqlite\n")
+        monkeypatch.delenv("DB_MCP_ALLOWED_ROOTS", raising=False)
+
+        rc = cli_main(
+            ["register-from-path", "--alias", "prod", "--file-path", str(env_file)]
+        )
+        assert rc == 1
+        err = capsys.readouterr().err
+        assert "DB_MCP_ALLOWED_ROOTS" in err
+
+
+class TestCliList:
+    """Tests for the ``list`` subcommand."""
+
+    def test_list_empty(self, capsys):
+        mock_vault = Mock()
+        mock_vault.list_aliases.return_value = []
+        with patch("db_mcp.vault.store.get_vault_store", return_value=mock_vault):
+            rc = cli_main(["list"])
+        assert rc == 0
+        assert "No vault aliases registered" in capsys.readouterr().out
+
+    def test_list_sorted_aliases(self, capsys):
+        mock_vault = Mock()
+        mock_vault.list_aliases.return_value = ["beta", "alpha"]
+        mock_vault.get_metadata.side_effect = lambda alias: {
+            "source": "direct",
+            "created_at": "2024-01-01T00:00:00+00:00",
+        }
+        with patch("db_mcp.vault.store.get_vault_store", return_value=mock_vault):
+            rc = cli_main(["list"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert out.index("- alpha") < out.index("- beta")
+        assert "source: direct" in out

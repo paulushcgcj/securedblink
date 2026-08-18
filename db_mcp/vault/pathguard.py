@@ -6,8 +6,6 @@ preventing directory traversal attacks.
 """
 
 import os
-import pathlib
-from typing import Optional
 
 
 def get_allowed_roots() -> list[str]:
@@ -144,7 +142,4 @@ def check_traversal_safety(file_path: str, allowed_root: str) -> bool:
     
     # Check for '..' in the relative path
     relative = os.path.relpath(path, root)
-    if relative.startswith("..") or os.sep + ".." + os.sep in relative:
-        return False
-    
-    return True
+    return not (relative.startswith("..") or os.sep + ".." + os.sep in relative)

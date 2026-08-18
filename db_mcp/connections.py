@@ -12,7 +12,7 @@ Use ConnectionManager.get_engine_by_alias() to retrieve vault-stored connections
 """
 
 import os
-from typing import Optional
+
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 

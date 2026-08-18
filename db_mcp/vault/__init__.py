@@ -22,17 +22,6 @@ Configuration:
   path-based registration: DB_MCP_ALLOWED_ROOTS=/path/to/configs:/another/path
 """
 
-from db_mcp.vault.store import (
-    VaultStore,
-    VaultStoreError,
-    InsecureKeyringError,
-    get_vault_store,
-    verify_secure_backend,
-)
-from db_mcp.vault.resolver import (
-    ConnectionResolver,
-    get_resolver,
-)
 from db_mcp.vault.parsers import (
     ConnectionConfig,
     parse_config_file,
@@ -44,31 +33,42 @@ from db_mcp.vault.pathguard import (
 )
 from db_mcp.vault.redact import (
     redact_connection_dict,
-    redact_string,
-    redact_for_logging,
     redact_exception,
+    redact_for_logging,
+    redact_string,
+)
+from db_mcp.vault.resolver import (
+    ConnectionResolver,
+    get_resolver,
+)
+from db_mcp.vault.store import (
+    InsecureKeyringError,
+    VaultStore,
+    VaultStoreError,
+    get_vault_store,
+    verify_secure_backend,
 )
 
 __all__ = [
-    # Store
-    "VaultStore",
-    "VaultStoreError", 
-    "InsecureKeyringError",
-    "get_vault_store",
-    "verify_secure_backend",
-    # Resolver
-    "ConnectionResolver",
-    "get_resolver",
     # Parsers
     "ConnectionConfig",
-    "parse_config_file",
+    # Resolver
+    "ConnectionResolver",
+    "InsecureKeyringError",
+    # Store
+    "VaultStore",
+    "VaultStoreError",
     # Path guard
     "get_allowed_roots",
+    "get_resolver",
+    "get_vault_store",
     "is_path_allowed",
-    "validate_and_get_absolute_path",
+    "parse_config_file",
     # Redaction
     "redact_connection_dict",
-    "redact_string",
-    "redact_for_logging",
     "redact_exception",
+    "redact_for_logging",
+    "redact_string",
+    "validate_and_get_absolute_path",
+    "verify_secure_backend",
 ]

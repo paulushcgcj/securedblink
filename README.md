@@ -242,6 +242,34 @@ vault_revoke(alias="prod")
 # Returns: {"alias": "prod", "status": "revoked", "existed": true}
 ```
 
+#### Command-line interface
+
+You can also register connections from the terminal without going through the agent. Use the `db-mcp` command with a subcommand (or `python -m db_mcp.server` if you run from a source checkout):
+
+```bash
+# Register a connection directly (prompts-free, useful for scripting)
+db-mcp register \
+  --alias prod \
+  --jdbc-url "postgresql://user:password@host:5432/mydb" \
+  --username user \
+  --password password \
+  --driver org.postgresql.Driver
+
+# Overwrite an existing alias
+db-mcp register --alias prod --jdbc-url "..." --overwrite
+
+# Register from a config file (requires DB_MCP_ALLOWED_ROOTS)
+export DB_MCP_ALLOWED_ROOTS="/path/to/configs"
+db-mcp register-from-path --alias prod --file-path /path/to/configs/prod.env
+
+# List registered aliases
+db-mcp list
+```
+
+Running `db-mcp` with no subcommand starts the MCP server.
+
+> **Note (macOS):** `DB_MCP_ALLOWED_ROOTS` is compared against resolved paths. `/tmp` resolves to `/private/tmp`, so use `DB_MCP_ALLOWED_ROOTS="/private/tmp"` if your config files live in `/tmp`.
+
 ### Security requirements
 
 - The `vault_register_from_path` tool **requires** `DB_MCP_ALLOWED_ROOTS` to be set
