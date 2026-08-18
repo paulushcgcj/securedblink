@@ -16,22 +16,26 @@ Tools:
 import os
 import secrets
 import time
-from typing import Any, NamedTuple, Optional
+from typing import Any, NamedTuple
 
 from mcp.server.fastmcp import FastMCP
-from sqlalchemy import inspect as sa_inspect, text
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import text
 
 from db_mcp.classifier import classify
 from db_mcp.connections import ConnectionManager
 from db_mcp.vault import (
-    get_vault_store,
     get_resolver,
+    get_vault_store,
     parse_config_file,
-    validate_and_get_absolute_path,
     redact_exception,
-    redact_for_logging,
+    validate_and_get_absolute_path,
 )
-from db_mcp.vault.store import InsecureKeyringError, verify_secure_backend
+from db_mcp.vault.store import (
+    InsecureKeyringError,
+    VaultStoreError,
+    verify_secure_backend,
+)
 
 # ---------------------------------------------------------------------------
 # Server
@@ -114,17 +118,17 @@ def _purge_tokens() -> None:
 def vault_register_connection(
     alias: str,
     jdbc_url: str,
-    username: Optional[str] = None,
-    password: Optional[str] = None,
-    driver: Optional[str] = None,
+    username: str | None = None,
+    password: str | None = None,
+    driver: str | None = None,
     overwrite: bool = False,
 ) -> dict[str, str]:
     """Register a database connection in the credential vault.
-    
+
     Stores the JDBC URL and credentials securely using the system's
     credential manager. The alias can then be used with other tools
     instead of passing the connection URL directly.
-    
+
     Args:
         alias: Unique name for this connection (e.g., 'prod', 'local')
         jdbc_url: JDBC connection URL (e.g., 'postgresql://user:pass@host:5432/db')
@@ -132,10 +136,10 @@ def vault_register_connection(
         password: Database password (optional if embedded in URL)
         driver: JDBC driver class (optional)
         overwrite: If True, replace existing alias (default: False)
-        
+
     Returns:
         {"alias": alias, "status": "registered"}
-        
+
     Note:
         Credentials are NEVER returned in responses, logs, or error messages.
         Use vault_list to see registered aliases.
@@ -151,7 +155,7 @@ def vault_register_connection(
             overwrite=overwrite,
         )
         return {"alias": alias, "status": "registered"}
-    except Exception as e:
+    except (VaultStoreError, InsecureKeyringError, ValueError, OSError) as e:
         return {
             "error": str(e),
             "alias": alias,
@@ -166,27 +170,27 @@ def vault_register_from_path(
     overwrite: bool = False,
 ) -> dict[str, str]:
     """Register a database connection from a configuration file.
-    
+
     Reads and parses a configuration file (.env, .properties, .yml, .yaml)
     to extract connection details, then stores them securely in the vault.
-    
+
     Args:
         alias: Unique name for this connection
         file_path: Path to configuration file
         overwrite: If True, replace existing alias (default: False)
-        
+
     Returns:
         {"alias": alias, "status": "registered"}
-        
+
     Raises:
         ValueError: If the file path is outside the allow-listed roots
                    (configure with DB_MCP_ALLOWED_ROOTS environment variable)
-        
+
     Supported formats:
         - .env: DB_URL=jdbc:... , DB_USERNAME=..., DB_PASSWORD=...
         - .properties: jdbc.url=jdbc:..., jdbc.username=..., jdbc.password=...
         - .yml/.yaml: spring.datasource.url: jdbc:..., spring.datasource.username: ...
-        
+
     Note:
         The file must be within a directory listed in DB_MCP_ALLOWED_ROOTS.
         Set DB_MCP_ALLOWED_ROOTS=/path1:/path2 to configure allowed roots.
@@ -195,17 +199,17 @@ def vault_register_from_path(
     try:
         # Validate path is within allow-listed roots
         absolute_path = validate_and_get_absolute_path(file_path)
-        
+
         # Parse the config file
         config = parse_config_file(absolute_path)
-        
+
         if not config.is_valid():
             return {
                 "error": f"Could not extract valid connection URL from {file_path}",
                 "alias": alias,
                 "status": "failed",
             }
-        
+
         # Store in vault
         _vault.set(
             alias=alias,
@@ -216,7 +220,7 @@ def vault_register_from_path(
             source="path",
             overwrite=overwrite,
         )
-        
+
         return {"alias": alias, "status": "registered"}
     except ValueError as e:
         # Path validation errors are expected and should be returned
@@ -225,7 +229,7 @@ def vault_register_from_path(
             "alias": alias,
             "status": "failed",
         }
-    except Exception as e:
+    except (VaultStoreError, InsecureKeyringError, OSError) as e:
         # For other errors, redact any potential credentials
         safe_error = redact_exception(e) if isinstance(e, Exception) else str(e)
         return {
@@ -238,13 +242,13 @@ def vault_register_from_path(
 @mcp.tool()
 def vault_list() -> dict[str, Any]:
     """List all registered credential vault aliases.
-    
+
     Returns metadata for all connections stored in the vault.
     This includes alias names, creation timestamps, and source type.
-    
+
     Returns:
         {"aliases": [{"name": alias, "created_at": timestamp, "source": source}, ...]}
-        
+
     Note:
         This only lists metadata. Credentials are NEVER returned.
         Use vault_revoke to remove a connection from the vault.
@@ -252,24 +256,26 @@ def vault_list() -> dict[str, Any]:
     metadata = _vault.list_all_metadata()
     aliases = []
     for alias, meta in sorted(metadata.items()):
-        aliases.append({
-            "name": alias,
-            "created_at": meta.get("created_at", "unknown"),
-            "source": meta.get("source", "unknown"),
-        })
+        aliases.append(
+            {
+                "name": alias,
+                "created_at": meta.get("created_at", "unknown"),
+                "source": meta.get("source", "unknown"),
+            }
+        )
     return {"aliases": aliases}
 
 
 @mcp.tool()
 def vault_revoke(alias: str) -> dict[str, Any]:
     """Remove a connection from the credential vault.
-    
+
     Deletes the stored credentials and removes the alias from the index.
     This is idempotent - it succeeds even if the alias doesn't exist.
-    
+
     Args:
         alias: The alias to remove
-        
+
     Returns:
         {"alias": alias, "status": "revoked", "existed": bool}
     """
@@ -292,8 +298,7 @@ def list_connections() -> str:
     """List all database connections (env vars + vault aliases)."""
     env_names = _db.names()
     vault_names = _db.vault_names()
-    all_names = _db.all_names()
-    
+
     if not env_names and not vault_names:
         return (
             "No connections configured.\n\n"
@@ -304,19 +309,19 @@ def list_connections() -> str:
             "  Use vault_register_connection to store credentials securely\n"
             "  Use vault_register_from_path to load from a config file"
         )
-    
+
     lines = []
-    
+
     if env_names:
         lines.append("Environment variable connections:")
         lines += [f"  - {n} (env)" for n in env_names]
-    
+
     if vault_names:
         if lines:
             lines.append("")
         lines.append("Vault connections:")
         lines += [f"  - {n} (vault)" for n in vault_names]
-    
+
     return "\n".join(lines)
 
 
@@ -498,5 +503,126 @@ def main() -> None:
     mcp.run()
 
 
+def cli_main(argv: list[str] | None = None) -> int:
+    """Run the vault-management command-line interface.
+
+    Returns the process exit code. With no subcommand, starts the MCP
+    server (blocking); the CLI subcommands ``register``,
+    ``register-from-path`` and ``list`` manage the credential vault.
+    """
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(
+        prog="db-mcp", description="MCP server for multi-database access"
+    )
+    subparsers = parser.add_subparsers(dest="command")
+
+    # Register subcommand
+    register_parser = subparsers.add_parser(
+        "register", help="Register a connection in the vault"
+    )
+    register_parser.add_argument("--alias", required=True, help="Unique alias name")
+    register_parser.add_argument(
+        "--jdbc-url", required=True, help="JDBC connection URL"
+    )
+    register_parser.add_argument(
+        "--username", required=False, default=None, help="Database username"
+    )
+    register_parser.add_argument(
+        "--password", required=False, default=None, help="Database password"
+    )
+    register_parser.add_argument(
+        "--driver", required=False, default=None, help="JDBC driver class"
+    )
+    register_parser.add_argument(
+        "--overwrite", action="store_true", help="Replace existing alias"
+    )
+
+    # Register from path subcommand
+    register_path_parser = subparsers.add_parser(
+        "register-from-path", help="Register a connection from a config file"
+    )
+    register_path_parser.add_argument(
+        "--alias", required=True, help="Unique alias name"
+    )
+    register_path_parser.add_argument(
+        "--file-path",
+        required=True,
+        help="Path to configuration file (.env, .properties, .yml, .yaml)",
+    )
+    register_path_parser.add_argument(
+        "--overwrite", action="store_true", help="Replace existing alias"
+    )
+
+    # List subcommand
+    subparsers.add_parser("list", help="List all registered vault aliases")
+
+    args = parser.parse_args(argv)
+
+    if args.command is None:
+        # No subcommand: start the server
+        main()
+        return 0
+
+    from db_mcp.vault.store import VaultStoreError, get_vault_store
+
+    try:
+        if args.command == "register":
+            vault = get_vault_store()
+            vault.set(
+                alias=args.alias,
+                jdbc_url=args.jdbc_url,
+                username=args.username,
+                password=args.password,
+                driver=args.driver,
+                source="direct",
+                overwrite=args.overwrite,
+            )
+            print(f"Alias {args.alias!r} registered in vault.")
+        elif args.command == "register-from-path":
+            from db_mcp.vault.parsers import parse_config_file
+            from db_mcp.vault.pathguard import validate_and_get_absolute_path
+
+            absolute_path = validate_and_get_absolute_path(args.file_path)
+            config = parse_config_file(absolute_path)
+
+            if not config.is_valid():
+                print(
+                    f"Error: could not extract a valid connection URL "
+                    f"from {args.file_path}",
+                    file=sys.stderr,
+                )
+                return 1
+
+            vault = get_vault_store()
+            vault.set(
+                alias=args.alias,
+                jdbc_url=config.jdbc_url or "",
+                username=config.username,
+                password=config.password,
+                driver=config.driver,
+                source="path",
+                overwrite=args.overwrite,
+            )
+            print(f"Alias {args.alias!r} registered in vault from {args.file_path}.")
+        elif args.command == "list":
+            vault = get_vault_store()
+            aliases = vault.list_aliases()
+            if not aliases:
+                print("No vault aliases registered.")
+            else:
+                for a in sorted(aliases):
+                    meta = vault.get_metadata(a) or {}
+                    print(
+                        f"- {a} (source: {meta.get('source', 'unknown')}, "
+                        f"created: {meta.get('created_at', 'unknown')})"
+                    )
+    except (VaultStoreError, ValueError, FileNotFoundError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(cli_main())

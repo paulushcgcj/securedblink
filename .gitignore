@@ -172,13 +172,16 @@ celerybeat.pid
 *.sage.py
 
 # Environments
-.env
+.Env
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Test databases (untracked, created by quick-start; not for version control)
+test.db
 
 # Spyder project settings
 .spyderproject
