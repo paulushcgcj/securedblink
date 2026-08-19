@@ -8,7 +8,7 @@
 
 ## Security Considerations
 
-db-mcp is an MCP server that executes SQL queries against databases on behalf of
+dbbridge is an MCP server that executes SQL queries against databases on behalf of
 LLM agents. Be aware of the following:
 
 ### Credentials
@@ -53,7 +53,7 @@ large data dumps.
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in db-mcp, please report it
+If you discover a security vulnerability in dbbridge, please report it
 responsibly.
 
 ### GitHub Security Advisories (Preferred)
@@ -86,7 +86,7 @@ Please do **not** open public GitHub issues for security vulnerabilities.
 
 **In scope:**
 
-- `db-mcp` server code (`db_mcp/`)
+- `dbbridge` server code (`dbbridge/`)
 - The confirmation token flow
 - The SQL query classifier
 - The database connection manager

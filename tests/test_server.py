@@ -1,4 +1,4 @@
-"""Tests for db_mcp.server module."""
+"""Tests for dbbridge.server module."""
 
 import os
 import time
@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from sqlalchemy import create_engine, text
 
-import db_mcp.server as srv
-from db_mcp.connections import ConnectionManager
+import dbbridge.server as srv
+from dbbridge.connections import ConnectionManager
 
 # ---------------------------------------------------------------------------
 # Helpers

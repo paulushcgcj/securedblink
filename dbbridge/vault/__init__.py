@@ -1,4 +1,4 @@
-"""db-mcp credential vault.
+"""dbbridge credential vault.
 
 This module provides a secure credential vault for storing database connection
 configuration. It uses the keyring library for secure storage and maintains
@@ -18,30 +18,30 @@ Security features:
 - All logging and exception messages are redacted to prevent credential leaks
 
 Configuration:
-- Set DB_MCP_ALLOWED_ROOTS to a colon-separated list of directories for
-  path-based registration: DB_MCP_ALLOWED_ROOTS=/path/to/configs:/another/path
+- Set DBBRIDGE_ALLOWED_ROOTS to a colon-separated list of directories for
+  path-based registration: DBBRIDGE_ALLOWED_ROOTS=/path/to/configs:/another/path
 """
 
-from db_mcp.vault.parsers import (
+from dbbridge.vault.parsers import (
     ConnectionConfig,
     parse_config_file,
 )
-from db_mcp.vault.pathguard import (
+from dbbridge.vault.pathguard import (
     get_allowed_roots,
     is_path_allowed,
     validate_and_get_absolute_path,
 )
-from db_mcp.vault.redact import (
+from dbbridge.vault.redact import (
     redact_connection_dict,
     redact_exception,
     redact_for_logging,
     redact_string,
 )
-from db_mcp.vault.resolver import (
+from dbbridge.vault.resolver import (
     ConnectionResolver,
     get_resolver,
 )
-from db_mcp.vault.store import (
+from dbbridge.vault.store import (
     InsecureKeyringError,
     VaultStore,
     VaultStoreError,

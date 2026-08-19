@@ -6,7 +6,7 @@ from vault aliases, with fallback to environment variables.
 
 from typing import Any
 
-from db_mcp.vault.store import get_vault_store
+from dbbridge.vault.store import get_vault_store
 
 
 class ConnectionResolver:

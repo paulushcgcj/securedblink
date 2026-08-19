@@ -1,4 +1,4 @@
-# Contributing to db-mcp
+# Contributing to dbbridge
 
 Thanks for your interest in contributing! This guide will help you get started.
 
@@ -12,8 +12,8 @@ Thanks for your interest in contributing! This guide will help you get started.
 
 ```bash
 # 1. Fork and clone the repo
-git clone git@github.com:<your-username>/db-mcp.git
-cd db-mcp
+git clone git@github.com:<your-username>/dbbridge.git
+cd dbbridge
 
 # 2. Install core dependencies
 uv sync
@@ -34,7 +34,7 @@ export DB_LOCAL=sqlite:///./dev.db
 
 ```bash
 # Direct run
-DB_LOCAL=sqlite:///./test.db uv run db-mcp
+DB_LOCAL=sqlite:///./test.db uv run dbbridge
 
 # Or via the launcher script (auto-installs drivers from DB_* env vars)
 DB_LOCAL=sqlite:///./test.db ./run.sh
@@ -43,7 +43,7 @@ DB_LOCAL=sqlite:///./test.db ./run.sh
 ## Project Structure
 
 ```
-db_mcp/
+dbbridge/
   server.py       # FastMCP server, tools, token management
   classifier.py   # SQL query classification (safe/mutation/destructive)
   connections.py  # DB connection manager via DB_* env vars
@@ -152,5 +152,5 @@ By participating, you agree to uphold its standards.
 
 ## License
 
-db-mcp is licensed under [GPL-3.0](LICENSE). By contributing, you agree that
+dbbridge is licensed under [GPL-3.0](LICENSE). By contributing, you agree that
 your contributions will be licensed under the same license.

@@ -64,7 +64,7 @@ uv tool install git-cliff
 2. Add a **Trusted Publisher** with:
    - Publisher: GitHub Actions
    - Owner: `paulushcgcj`
-   - Repository: `db-mcp`
+   - Repository: `dbbridge`
    - Workflow filename: `release.yml`
    - Environment name: `pypi`
 3. In GitHub, create an Actions **Environment** named `pypi` under
@@ -154,14 +154,14 @@ no tokens required.
 Monitor progress at **Actions → Publish to PyPI**.
 
 Once complete, the new version will be live at:
-`https://pypi.org/project/db-mcp/`
+`https://pypi.org/project/dbbridge/`
 
 Users can install it immediately:
 
 ```bash
-pip install db-mcp
+pip install dbbridge
 # or
-uv tool install db-mcp
+uv tool install dbbridge
 ```
 
 ---
@@ -213,7 +213,7 @@ On PyPI the version will appear as `2.0.0rc1` and will only be installed if
 the user explicitly requests it:
 
 ```bash
-pip install "db-mcp==2.0.0rc1"
+pip install "dbbridge==2.0.0rc1"
 # or
-pip install --pre db-mcp
+pip install --pre dbbridge
 ```

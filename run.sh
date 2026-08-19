@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# run.sh — db-mcp MCP server launcher
+# run.sh — dbbridge MCP server launcher
 #
 # Set this script as the MCP "command" in your tool config.
 # The tool passes DB_* env vars; this script preps the environment and
@@ -11,7 +11,7 @@
 # │  "mcp": {                                                               │
 # │    "db": {                                                              │
 # │      "type": "local",                                                   │
-# │      "command": ["/path/to/db-mcp/run.sh"],                            │
+# │      "command": ["/path/to/dbbridge/run.sh"],                            │
 # │      "environment": {                                                   │
 # │        "DB_PROD":  "postgresql://user:pass@host:5432/mydb",            │
 # │        "DB_LOCAL": "sqlite:///./app.db"                                 │
@@ -22,9 +22,9 @@
 #
 # ┌─ VS Code (.vscode/mcp.json) ───────────────────────────────────────────┐
 # │  "servers": {                                                           │
-# │    "db-mcp": {                                                          │
+# │    "dbbridge": {                                                          │
 # │      "type":    "stdio",                                                │
-# │      "command": "/path/to/db-mcp/run.sh",                              │
+# │      "command": "/path/to/dbbridge/run.sh",                              │
 # │      "env": {                                                           │
 # │        "DB_PROD":  "postgresql://user:pass@host:5432/mydb",            │
 # │        "DB_LOCAL": "sqlite:///./app.db"                                 │
@@ -45,10 +45,10 @@ cd "$SCRIPT_DIR"
 
 # ── ALL diagnostic output goes to stderr ─────────────────────────────────────
 # stdout is reserved exclusively for the MCP stdio protocol.
-log()  { echo "[db-mcp] ▶  $*" >&2; }
-ok()   { echo "[db-mcp] ✔  $*" >&2; }
-warn() { echo "[db-mcp] ⚠  $*" >&2; }
-err()  { echo "[db-mcp] ✘  $*" >&2; }
+log()  { echo "[dbbridge] ▶  $*" >&2; }
+ok()   { echo "[dbbridge] ✔  $*" >&2; }
+warn() { echo "[dbbridge] ⚠  $*" >&2; }
+err()  { echo "[dbbridge] ✘  $*" >&2; }
 die()  { err "$*"; exit 1; }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -225,9 +225,9 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 # PHASE 3 — Hand off to the MCP server
 #
-# exec replaces this shell process with db-mcp.
+# exec replaces this shell process with dbbridge.
 # From this point: stdin/stdout belong entirely to the MCP protocol.
 # The tool sees a clean process with no prior stdout noise.
 # ─────────────────────────────────────────────────────────────────────────────
 log "Handing off to MCP server ($DB_COUNT connection(s))"
-exec uv run db-mcp
+exec uv run dbbridge

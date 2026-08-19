@@ -330,7 +330,7 @@ wheels = [
 ]
 
 [[package]]
-name = "db-mcp"
+name = "dbbridge"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

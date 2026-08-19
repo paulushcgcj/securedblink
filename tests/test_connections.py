@@ -1,10 +1,10 @@
-"""Tests for db_mcp.connections module."""
+"""Tests for dbbridge.connections module."""
 
 import os
 
 import pytest
 
-from db_mcp.connections import ConnectionManager, _load_urls
+from dbbridge.connections import ConnectionManager, _load_urls
 
 
 class TestLoadUrls:

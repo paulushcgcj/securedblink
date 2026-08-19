@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="paulushcgcj/db-mcp"
-BINARY="db-mcp"
+REPO="paulushcgcj/dbbridge"
+BINARY="dbbridge"
 INSTALL_DIR="/usr/local/bin"
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')

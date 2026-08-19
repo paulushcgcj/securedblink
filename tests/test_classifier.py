@@ -1,8 +1,8 @@
-"""Tests for db_mcp.classifier module."""
+"""Tests for dbbridge.classifier module."""
 
 import pytest
 
-from db_mcp.classifier import _first_keyword, _strip_comments, classify
+from dbbridge.classifier import _first_keyword, _strip_comments, classify
 
 # ---------------------------------------------------------------------------
 # _strip_comments

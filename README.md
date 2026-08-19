@@ -1,9 +1,9 @@
-# db-mcp
+# dbbridge
 
-[![PyPI version](https://img.shields.io/pypi/v/db-mcp.svg)](https://pypi.org/project/db-mcp/)
-[![Python versions](https://img.shields.io/pypi/pyversions/db-mcp.svg)](https://pypi.org/project/db-mcp/)
-[![CI](https://github.com/paulushcgcj/db-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/paulushcgcj/db-mcp/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/paulushcgcj/db-mcp.svg)](LICENSE)
+[![PyPI version](https://img.shields.io/pypi/v/dbbridge.svg)](https://pypi.org/project/dbbridge/)
+[![Python versions](https://img.shields.io/pypi/pyversions/dbbridge.svg)](https://pypi.org/project/dbbridge/)
+[![CI](https://github.com/paulushcgcj/dbbridge/actions/workflows/ci.yml/badge.svg)](https://github.com/paulushcgcj/dbbridge/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/paulushcgcj/dbbridge.svg)](LICENSE)
 
 MCP server that gives LLM agents read access to any database, with built-in gates for writes.
 
@@ -11,28 +11,28 @@ MCP server that gives LLM agents read access to any database, with built-in gate
 
 **Mac / Linux**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/paulushcgcj/db-mcp/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/paulushcgcj/dbbridge/main/install.sh | bash
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-irm https://raw.githubusercontent.com/paulushcgcj/db-mcp/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/paulushcgcj/dbbridge/main/install.ps1 | iex
 ```
 
 **Via pip / uv (all platforms)**
 
 ```bash
-pip install db-mcp
+pip install dbbridge
 # or
-uv tool install db-mcp
+uv tool install dbbridge
 ```
 
-> **macOS note:** If you see a security warning on first run, clear the quarantine flag once: `xattr -d com.apple.quarantine /usr/local/bin/db-mcp`
+> **macOS note:** If you see a security warning on first run, clear the quarantine flag once: `xattr -d com.apple.quarantine /usr/local/bin/dbbridge`
 
-## Why db-mcp
+## Why dbbridge
 
-LLMs handle read-only database work: schema exploration, query writing, data analysis. A stray `DELETE` or `DROP` from an agent can wipe production data. db-mcp draws a hard line: reads go through, writes require the agent to show you exactly what it plans to do and wait for your explicit approval.
+LLMs handle read-only database work: schema exploration, query writing, data analysis. A stray `DELETE` or `DROP` from an agent can wipe production data. dbbridge draws a hard line: reads go through, writes require the agent to show you exactly what it plans to do and wait for your explicit approval.
 
 ## Features
 
@@ -60,8 +60,8 @@ Any other database works too. Install the right SQLAlchemy driver and use its UR
 
 ```bash
 # Clone the repo
-git clone git@github.com:paulushcgcj/db-mcp.git
-cd db-mcp
+git clone git@github.com:paulushcgcj/dbbridge.git
+cd dbbridge
 
 # Run with a local SQLite database
 DB_LOCAL=sqlite:///./test.db ./run.sh
@@ -93,7 +93,7 @@ DB_LOCAL=sqlite:///./test.db ./run.sh
 ./run.sh
 ```
 
-When your IDE launches db-mcp, point it at `run.sh` instead of calling `uv run db-mcp` directly. The script handles driver installation so you don't have to `pip install` extras like `[oracle]` or `[mysql]` by hand.
+When your IDE launches dbbridge, point it at `run.sh` instead of calling `uv run dbbridge` directly. The script handles driver installation so you don't have to `pip install` extras like `[oracle]` or `[mysql]` by hand.
 
 ## Connect your IDE
 
@@ -105,9 +105,9 @@ Add to `.vscode/mcp.json` (workspace) or `~/.vscode/mcp.json` (global):
 ```json
 {
   "servers": {
-    "db-mcp": {
+    "dbbridge": {
       "type": "stdio",
-      "command": "/absolute/path/to/db-mcp/run.sh",
+      "command": "/absolute/path/to/dbbridge/run.sh",
       "env": {
         "DB_PROD": "postgresql://user:pass@host:5432/mydb",
         "DB_LOCAL": "sqlite:///./local.db",
@@ -128,9 +128,9 @@ Add to `~/.config/opencode/opencode.jsonc` or `.opencode.json` in your project:
 ```json
 {
   "mcp": {
-    "db-mcp": {
+    "dbbridge": {
       "type": "local",
-      "command": ["/absolute/path/to/db-mcp/run.sh"],
+      "command": ["/absolute/path/to/dbbridge/run.sh"],
       "environment": {
         "DB_PROD": "postgresql://user:pass@host:5432/mydb",
         "DB_LOCAL": "sqlite:///./local.db",
@@ -195,7 +195,7 @@ The SQLAlchemy dialect registry resolves the driver from the URL prefix.
 |----------------|---------|--------------------------------------------------|
 | `DB_<NAME>`    | —       | Connection URL for a named database              |
 | `DB_MAX_ROWS`  | `500`   | Max rows returned per `query` call               |
-| `DB_MCP_ALLOWED_ROOTS` | — | Colon-separated list of directories for vault file registration |
+| `DBBRIDGE_ALLOWED_ROOTS` | — | Colon-separated list of directories for vault file registration |
 
 ## Credential Vault
 
@@ -241,7 +241,7 @@ query(connection_name="prod", sql="SELECT * FROM users")
 
 First, configure the allowed directories:
 ```bash
-export DB_MCP_ALLOWED_ROOTS="/path/to/configs:/another/path"
+export DBBRIDGE_ALLOWED_ROOTS="/path/to/configs:/another/path"
 ```
 
 Then register:
@@ -272,11 +272,11 @@ vault_revoke(alias="prod")
 
 #### Command-line interface
 
-You can also register connections from the terminal without going through the agent. Use the `db-mcp` command with a subcommand (or `python -m db_mcp.server` if you run from a source checkout):
+You can also register connections from the terminal without going through the agent. Use the `dbbridge` command with a subcommand (or `python -m dbbridge.server` if you run from a source checkout):
 
 ```bash
 # Register a connection directly (prompts-free, useful for scripting)
-db-mcp register \
+dbbridge register \
   --alias prod \
   --jdbc-url "postgresql://user:password@host:5432/mydb" \
   --username user \
@@ -284,23 +284,23 @@ db-mcp register \
   --driver org.postgresql.Driver
 
 # Overwrite an existing alias
-db-mcp register --alias prod --jdbc-url "..." --overwrite
+dbbridge register --alias prod --jdbc-url "..." --overwrite
 
-# Register from a config file (requires DB_MCP_ALLOWED_ROOTS)
-export DB_MCP_ALLOWED_ROOTS="/path/to/configs"
-db-mcp register-from-path --alias prod --file-path /path/to/configs/prod.env
+# Register from a config file (requires DBBRIDGE_ALLOWED_ROOTS)
+export DBBRIDGE_ALLOWED_ROOTS="/path/to/configs"
+dbbridge register-from-path --alias prod --file-path /path/to/configs/prod.env
 
 # List registered aliases
-db-mcp list
+dbbridge list
 ```
 
-Running `db-mcp` with no subcommand starts the MCP server.
+Running `dbbridge` with no subcommand starts the MCP server.
 
-> **Note (macOS):** `DB_MCP_ALLOWED_ROOTS` is compared against resolved paths. `/tmp` resolves to `/private/tmp`, so use `DB_MCP_ALLOWED_ROOTS="/private/tmp"` if your config files live in `/tmp`.
+> **Note (macOS):** `DBBRIDGE_ALLOWED_ROOTS` is compared against resolved paths. `/tmp` resolves to `/private/tmp`, so use `DBBRIDGE_ALLOWED_ROOTS="/private/tmp"` if your config files live in `/tmp`.
 
 ### Security requirements
 
-- The `vault_register_from_path` tool **requires** `DB_MCP_ALLOWED_ROOTS` to be set
+- The `vault_register_from_path` tool **requires** `DBBRIDGE_ALLOWED_ROOTS` to be set
 - Paths outside the allow-listed roots are **rejected** — no exceptions
 - All logging and exception messages are **redacted** to prevent credential leaks
 - No tool returns plaintext credentials under any circumstance

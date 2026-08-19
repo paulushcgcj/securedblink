@@ -11,7 +11,7 @@
 
 | What | Why |
 |---|---|
-| PyPI account + 2FA | Required to own and publish the `db-mcp` package |
+| PyPI account + 2FA | Required to own and publish the `dbbridge` package |
 | PyPI Trusted Publishing | Lets GitHub Actions publish to PyPI without any stored API key or password |
 | GitHub Actions Environment | Scopes the PyPI publish job and lets you add human approval gates |
 | (Optional) TestPyPI account | Lets you do a full end-to-end dry run against a safe sandbox before touching production PyPI |
@@ -71,7 +71,7 @@ touching production PyPI.
 ## Step 4 — Configure PyPI Trusted Publishing
 
 This is the most important step. It tells PyPI: "Trust GitHub Actions when it
-runs the `release.yml` workflow in the `paulushcgcj/db-mcp` repository."
+runs the `release.yml` workflow in the `paulushcgcj/dbbridge` repository."
 
 ### 4a — For a brand-new project (package does not exist on PyPI yet)
 
@@ -88,9 +88,9 @@ your first publish, so the first automated run just works.
 
    | Field | Value |
    |---|---|
-   | PyPI Project Name | `db-mcp` |
+   | PyPI Project Name | `dbbridge` |
    | Owner | `paulushcgcj` |
-   | Repository name | `db-mcp` |
+   | Repository name | `dbbridge` |
    | Workflow name | `release.yml` |
    | Environment name | `pypi` |
 
@@ -100,14 +100,14 @@ your first publish, so the first automated run just works.
 ### 4b — For an existing project (package already exists on PyPI)
 
 1. Log in to [https://pypi.org](https://pypi.org).
-2. Click your username → **Your projects** → click `db-mcp`.
+2. Click your username → **Your projects** → click `dbbridge`.
 3. In the left sidebar click **Publishing**.
 4. Scroll to **"Add a new publisher"** and fill in the form with **exactly** these values:
 
    | Field | Value |
    |---|---|
    | Owner | `paulushcgcj` |
-   | Repository name | `db-mcp` |
+   | Repository name | `dbbridge` |
    | Workflow name | `release.yml` |
    | Environment name | `pypi` |
 
@@ -197,20 +197,20 @@ source $HOME/.cargo/env
 
 ```bash
 # Clone the repository
-git clone https://github.com/paulushcgcj/db-mcp.git
-cd db-mcp
+git clone https://github.com/paulushcgcj/dbbridge.git
+cd dbbridge
 
 # Install the project in development mode
 uv sync
 
 # Make sure the CLI entry point works
-uv run db-mcp --help
+uv run dbbridge --help
 
 # Build the distribution packages
 uv build
 # Expected output:
-#   dist/db-mcp-<version>.tar.gz
-#   dist/db-mcp-<version>-py3-none-any.whl
+#   dist/dbbridge-<version>.tar.gz
+#   dist/dbbridge-<version>-py3-none-any.whl
 
 # Check the wheel contents
 uv tool install check-wheel-contents
@@ -254,14 +254,14 @@ After the push, go to **GitHub → Actions** and watch:
    **Publish to PyPI** job runs automatically after the GitHub Release (~1 min).
 
 The package will then be live at:
-`https://pypi.org/project/db-mcp/`
+`https://pypi.org/project/dbbridge/`
 
 Anyone can install it with:
 
 ```bash
-pip install db-mcp
+pip install dbbridge
 # or
-uv tool install db-mcp
+uv tool install dbbridge
 ```
 
 ---
@@ -311,12 +311,12 @@ the Trusted Publisher entry on PyPI, and re-run the release.
 
 | Resource | URL |
 |---|---|
-| PyPI project page | `https://pypi.org/project/db-mcp/` |
+| PyPI project page | `https://pypi.org/project/dbbridge/` |
 | PyPI publishing settings (account) | `https://pypi.org/manage/account/publishing/` |
-| PyPI publishing settings (project) | `https://pypi.org/manage/project/db-mcp/settings/publishing/` |
-| TestPyPI project page | `https://test.pypi.org/project/db-mcp/` |
-| GitHub Actions runs | `https://github.com/paulushcgcj/db-mcp/actions` |
-| GitHub Environments | `https://github.com/paulushcgcj/db-mcp/settings/environments` |
+| PyPI publishing settings (project) | `https://pypi.org/manage/project/dbbridge/settings/publishing/` |
+| TestPyPI project page | `https://test.pypi.org/project/dbbridge/` |
+| GitHub Actions runs | `https://github.com/paulushcgcj/dbbridge/actions` |
+| GitHub Environments | `https://github.com/paulushcgcj/dbbridge/settings/environments` |
 | OIDC Trusted Publishing docs | `https://docs.pypi.org/trusted-publishers/` |
 | uv documentation | `https://docs.astral.sh/uv/` |
 | git-cliff documentation | `https://git-cliff.org/` |

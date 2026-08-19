@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
-$Repo       = "paulushcgcj/db-mcp"
-$Binary     = "db-mcp"
+$Repo       = "paulushcgcj/dbbridge"
+$Binary     = "dbbridge"
 $InstallDir = "$env:LOCALAPPDATA\Programs\$Binary"
 
 $release = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest"

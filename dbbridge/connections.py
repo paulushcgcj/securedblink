@@ -45,7 +45,7 @@ class ConnectionManager:
 
     def vault_names(self) -> list[str]:
         """Return sorted list of vault alias names."""
-        from db_mcp.vault import get_vault_store
+        from dbbridge.vault import get_vault_store
 
         vault = get_vault_store()
         return vault.list_aliases()
@@ -101,7 +101,7 @@ class ConnectionManager:
         Raises:
             ValueError: If the alias is not found in the vault
         """
-        from db_mcp.vault import get_vault_store
+        from dbbridge.vault import get_vault_store
 
         vault = get_vault_store()
         alias = alias.lower()
@@ -148,7 +148,7 @@ class ConnectionManager:
         Returns:
             True if the name is a registered vault alias
         """
-        from db_mcp.vault import get_vault_store
+        from dbbridge.vault import get_vault_store
 
         vault = get_vault_store()
         return vault.exists(name.lower())

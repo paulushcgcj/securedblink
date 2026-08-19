@@ -41,16 +41,16 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            asset_name: db-mcp-linux-x86_64
+            asset_name: dbbridge-linux-x86_64
             artifact_suffix: linux-x86_64
           - os: macos-15-intel       # Intel runner — covers x86_64 Mac users
-            asset_name: db-mcp-macos-x86_64
+            asset_name: dbbridge-macos-x86_64
             artifact_suffix: macos-x86_64
           - os: macos-latest         # Apple Silicon (M-series)
-            asset_name: db-mcp-macos-aarch64
+            asset_name: dbbridge-macos-aarch64
             artifact_suffix: macos-aarch64
           - os: windows-latest
-            asset_name: db-mcp-windows-x86_64.exe
+            asset_name: dbbridge-windows-x86_64.exe
             artifact_suffix: windows-x86_64
     steps:
       - uses: actions/checkout@v4
@@ -83,7 +83,7 @@ jobs:
             --hidden-import sqlalchemy.dialects.postgresql \
             --hidden-import keyring.backends.Linux \
             --hidden-import keyring.backends.secretstorage \
-            db_mcp/server.py
+            dbbridge/server.py
 
       - name: Build binary (macOS)
         if: runner.os == 'macOS'
@@ -95,7 +95,7 @@ jobs:
             --hidden-import psycopg2 \
             --hidden-import sqlalchemy.dialects.postgresql \
             --hidden-import keyring.backends.macOS \
-            db_mcp/server.py
+            dbbridge/server.py
 
       - name: Build binary (Windows)
         if: runner.os == 'Windows'
@@ -108,7 +108,7 @@ jobs:
             --hidden-import psycopg2 `
             --hidden-import sqlalchemy.dialects.postgresql `
             --hidden-import keyring.backends.Windows `
-            db_mcp/server.py
+            dbbridge/server.py
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
@@ -151,7 +151,7 @@ jobs:
           uvx --from check-wheel-contents check-wheel-contents dist/*.whl
           WHEEL=$(ls dist/*.whl)
           uv run --isolated --no-project --with "${WHEEL}" python -c \
-            "import db_mcp; from importlib.metadata import version; assert version('db-mcp') == '${GITHUB_REF_NAME#v}'"
+            "import dbbridge; from importlib.metadata import version; assert version('dbbridge') == '${GITHUB_REF_NAME#v}'"
 
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v4
@@ -193,7 +193,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/db-mcp/
+      url: https://pypi.org/project/dbbridge/
     steps:
       - uses: actions/checkout@v4
 
