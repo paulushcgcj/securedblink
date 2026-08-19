@@ -184,3 +184,90 @@ class TestCliEdgeCases:
             == 1
         )
         assert "valid connection URL" in capfd.readouterr().err
+
+
+class TestCliUpdate:
+    """Tests for the ``update`` subcommand."""
+
+    def test_update_up_to_date(self, capfd):
+        with patch(
+            "securedblink.update.check_for_update",
+            return_value=Mock(
+                installed_version="1.0.0",
+                latest_version="1.0.0",
+                update_available=False,
+                skipped=False,
+                error=None,
+            ),
+        ):
+            rc = cli_main(["update"])
+        assert rc == 0
+        assert "up to date" in capfd.readouterr().err
+
+    def test_update_available_no_apply(self, capfd):
+        with patch(
+            "securedblink.update.check_for_update",
+            return_value=Mock(
+                installed_version="1.0.0",
+                latest_version="2.0.0",
+                update_available=True,
+                skipped=False,
+                error=None,
+            ),
+        ):
+            rc = cli_main(["update"])
+        assert rc == 0
+        err = capfd.readouterr().err
+        assert "Update available: 1.0.0 → 2.0.0" in err
+        assert "--apply" in err
+
+    def test_update_apply_success(self, capfd):
+        mock_result = Mock()
+        mock_result.stdout = "Updated successfully"
+        with patch(
+            "securedblink.update.check_for_update",
+            return_value=Mock(
+                installed_version="1.0.0",
+                latest_version="2.0.0",
+                update_available=True,
+                skipped=False,
+                error=None,
+            ),
+        ), patch(
+            "securedblink.update.apply_uv_upgrade",
+            return_value=mock_result,
+        ):
+            rc = cli_main(["update", "--apply"])
+        assert rc == 0
+        assert "Updated successfully" in capfd.readouterr().err
+
+    def test_update_error(self, capfd):
+        with patch(
+            "securedblink.update.check_for_update",
+            return_value=Mock(
+                installed_version="1.0.0",
+                latest_version=None,
+                update_available=False,
+                skipped=False,
+                error="Network error",
+            ),
+        ):
+            rc = cli_main(["update"])
+        assert rc == 1
+        assert "skipped" in capfd.readouterr().err
+
+    def test_update_opt_out(self, capfd):
+        with patch.dict("os.environ", {"SECUREDBLINK_NO_UPDATE_CHECK": "1"}):
+            with patch(
+                "securedblink.update.check_for_update",
+                return_value=Mock(
+                    installed_version="1.0.0",
+                    latest_version=None,
+                    update_available=False,
+                    skipped=True,
+                    error=None,
+                ),
+            ):
+                rc = cli_main(["update"])
+        assert rc == 0
+        assert "disabled" in capfd.readouterr().err
