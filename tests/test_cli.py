@@ -156,3 +156,31 @@ class TestCliList:
         err = capfd.readouterr().err
         assert err.index("- alpha") < err.index("- beta")
         assert "source: direct" in err
+
+
+class TestCliEdgeCases:
+    """Tests for CLI dispatch and validation edge cases."""
+
+    def test_no_command_starts_server(self):
+        with patch("securedblink.server.main") as mock_main:
+            assert cli_main([]) == 0
+        mock_main.assert_called_once_with()
+
+    def test_register_from_path_invalid_config(self, tmp_path, monkeypatch, capfd):
+        env_file = tmp_path / "invalid.env"
+        env_file.write_text("DB_USERNAME=alice\n")
+        monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(tmp_path))
+
+        assert (
+            cli_main(
+                [
+                    "register-from-path",
+                    "--alias",
+                    "prod",
+                    "--file-path",
+                    str(env_file),
+                ]
+            )
+            == 1
+        )
+        assert "valid connection URL" in capfd.readouterr().err

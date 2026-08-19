@@ -4,6 +4,7 @@ import os
 import time
 from unittest.mock import MagicMock, patch
 
+import pytest
 from sqlalchemy import create_engine, text
 
 import securedblink.server as srv
@@ -72,6 +73,23 @@ class TestListConnections:
         result = srv.list_connections()
         assert "alpha" in result
         assert "beta" in result
+
+    def test_with_vault_connections(self):
+        vault_db = MagicMock()
+        vault_db.names.return_value = []
+        vault_db.vault_names.return_value = ["prod"]
+        with patch.object(srv, "_db", vault_db):
+            result = srv.list_connections()
+        assert "prod (vault)" in result
+
+    def test_with_environment_and_vault_connections(self):
+        vault_db = MagicMock()
+        vault_db.names.return_value = ["local"]
+        vault_db.vault_names.return_value = ["prod"]
+        with patch.object(srv, "_db", vault_db):
+            result = srv.list_connections()
+        assert "Environment variable connections:" in result
+        assert "Vault connections:" in result
 
 
 # ---------------------------------------------------------------------------
@@ -352,3 +370,83 @@ class TestMain:
         with patch.object(srv.mcp, "run") as mock_run:
             srv.main()
             mock_run.assert_called_once()
+
+
+class TestVaultTools:
+    def test_register_connection(self):
+        vault = MagicMock()
+        with patch.object(srv, "_vault", vault):
+            result = srv.vault_register_connection(
+                "prod", "postgresql://db", username="alice", overwrite=True
+            )
+        assert result == {"alias": "prod", "status": "registered"}
+        vault.set.assert_called_once_with(
+            alias="prod",
+            jdbc_url="postgresql://db",
+            username="alice",
+            password=None,
+            driver=None,
+            source="direct",
+            overwrite=True,
+        )
+
+    @pytest.mark.parametrize("error", [ValueError("bad"), OSError("unavailable")])
+    def test_register_connection_failure(self, error):
+        vault = MagicMock()
+        vault.set.side_effect = error
+        with patch.object(srv, "_vault", vault):
+            result = srv.vault_register_connection("prod", "sqlite:///db")
+        assert result["status"] == "failed"
+        assert result["alias"] == "prod"
+        assert result["error"] == str(error)
+
+    def test_register_from_path_success(self, tmp_path, monkeypatch):
+        config_file = tmp_path / "config.env"
+        config_file.write_text("DB_URL=sqlite:///db\nDB_USERNAME=alice\n")
+        monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(tmp_path))
+        vault = MagicMock()
+        with patch.object(srv, "_vault", vault):
+            result = srv.vault_register_from_path("local", str(config_file))
+        assert result == {"alias": "local", "status": "registered"}
+        assert vault.set.call_args.kwargs["source"] == "path"
+
+    def test_register_from_path_invalid_config(self, tmp_path, monkeypatch):
+        config_file = tmp_path / "config.env"
+        config_file.write_text("DB_USERNAME=alice\n")
+        monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(tmp_path))
+        with patch.object(srv, "_vault", MagicMock()):
+            result = srv.vault_register_from_path("local", str(config_file))
+        assert result["status"] == "failed"
+        assert "valid connection URL" in result["error"]
+
+    def test_register_from_path_store_error_is_redacted(self, tmp_path, monkeypatch):
+        config_file = tmp_path / "config.env"
+        config_file.write_text("DB_URL=postgresql://user:secret@host/db\n")
+        monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(tmp_path))
+        vault = MagicMock()
+        vault.set.side_effect = OSError("failed for postgresql://user:secret@host/db")
+        with patch.object(srv, "_vault", vault):
+            result = srv.vault_register_from_path("prod", str(config_file))
+        assert result["status"] == "failed"
+        assert "secret" not in result["error"]
+
+    def test_register_from_path_rejects_path(self, monkeypatch):
+        monkeypatch.delenv("SECUREDBLINK_ALLOWED_ROOTS", raising=False)
+        result = srv.vault_register_from_path("prod", "/tmp/config.env")
+        assert result["status"] == "failed"
+        assert "SECUREDBLINK_ALLOWED_ROOTS" in result["error"]
+
+    def test_vault_list_and_revoke(self):
+        vault = MagicMock()
+        vault.list_all_metadata.return_value = {
+            "prod": {"created_at": "now", "source": "direct"},
+            "local": {},
+        }
+        vault.exists.return_value = True
+        with patch.object(srv, "_vault", vault):
+            listed = srv.vault_list()
+            revoked = srv.vault_revoke("prod")
+        assert listed["aliases"][0]["name"] == "local"
+        assert listed["aliases"][0]["created_at"] == "unknown"
+        assert revoked == {"alias": "prod", "status": "revoked", "existed": True}
+        vault.delete.assert_called_once_with("prod")

@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from keyring.errors import KeyringError
 
 from securedblink.vault.parsers import (
     ConnectionConfig,
@@ -13,6 +14,7 @@ from securedblink.vault.parsers import (
     parse_config_file,
 )
 from securedblink.vault.pathguard import (
+    check_traversal_safety,
     get_allowed_roots,
     is_path_allowed,
     validate_and_get_absolute_path,
@@ -44,6 +46,11 @@ class TestRedact:
         url = "sqlite:///./test.db"
         result = redact_string(url)
         assert result == url
+
+    def test_redact_for_logging_string_url(self):
+        result = redact_for_logging("postgresql://user:secret@host/db")
+        assert "secret" not in result
+        assert "[REDACTED]" in result
 
     def test_redact_dict_password_field(self):
         conn = {
@@ -98,6 +105,28 @@ class TestRedact:
             result = redact_exception(e)
             assert "secret" not in result
             assert "[REDACTED]" in result
+
+    def test_redact_nested_collections_and_scalars(self):
+        value = {
+            "items": [{"token": "secret"}, ["postgresql://u:p@host/db"], 42],
+            "count": 1,
+        }
+        result = redact_for_logging(value)
+        assert result["items"][0]["token"] == "[REDACTED]"
+        assert "p@" not in result["items"][1][0]
+        assert result["items"][2] == 42
+        assert result["count"] == 1
+        assert redact_for_logging(("postgresql://u:p@host/db", 1))[1] == 1
+        assert redact_for_logging(42) == 42
+
+    def test_redact_deep_nesting_and_field_patterns(self):
+        value = current = {}
+        for _ in range(12):
+            current["next"] = {}
+            current = current["next"]
+        assert "max depth" in str(redact_connection_dict(value)).lower()
+        assert "[REDACTED]" in redact_exception(ValueError("password: secret"))
+        assert redact_exception("not an exception") == "not an exception"  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +251,36 @@ class TestPathGuard:
         result = validate_and_get_absolute_path(str(test_file))
         assert result == str(test_file.resolve())
 
+    def test_missing_and_invalid_paths(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(tmp_path))
+        outside_file = tmp_path.parent / "outside.env"
+        outside_file.write_text("DB_URL=sqlite:///./test.db")
+        with pytest.raises(ValueError, match="File not found"):
+            is_path_allowed(str(tmp_path / "missing.env"))
+        with pytest.raises(ValueError, match="not within"):
+            validate_and_get_absolute_path(str(outside_file))
+
+    def test_traversal_safety(self, tmp_path):
+        root = tmp_path / "root"
+        root.mkdir()
+        assert check_traversal_safety(str(root / "safe.env"), str(root))
+        assert not check_traversal_safety(str(root.parent / "outside"), str(root))
+        assert not check_traversal_safety(str(root / ".." / "outside"), str(root))
+
+    def test_path_resolution_fallbacks(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(tmp_path))
+        target = tmp_path / "config.env"
+        target.write_text("DB_URL=sqlite:///db")
+        realpath = "securedblink.vault.pathguard.os.path.realpath"
+        with patch(realpath, side_effect=OSError):
+            assert is_path_allowed(str(target))
+
+        with patch(
+            "securedblink.vault.pathguard.os.path.commonpath",
+            side_effect=ValueError,
+        ):
+            assert not is_path_allowed(str(target))
+
 
 # ---------------------------------------------------------------------------
 # Parsers Tests
@@ -333,6 +392,29 @@ class TestParsers:
         config_empty_url = ConnectionConfig(jdbc_url=None)
         assert not config_empty_url.is_valid()
 
+    def test_properties_supports_colon_driver_and_ignored_lines(self, tmp_path):
+        props_file = tmp_path / "test.properties"
+        props_file.write_text(
+            "! comment\nignored-line\nurl: jdbc:sqlite:///db\nuser: alice\n"
+            "password: secret\ndriver: org.example.Driver\n"
+        )
+        config = _parse_properties_file(str(props_file))
+        assert config.jdbc_url == "jdbc:sqlite:///db"
+        assert config.username == "alice"
+        assert config.password == "secret"
+        assert config.driver == "org.example.Driver"
+
+    def test_connection_config_to_dict_omits_empty_values(self):
+        config = ConnectionConfig(jdbc_url="", username="", password=None, driver=None)
+        assert config.to_dict() == {}
+
+    def test_yaml_dependency_error(self, monkeypatch, tmp_path):
+        import securedblink.vault.parsers as parsers
+
+        monkeypatch.setattr(parsers, "_HAS_YAML", False)
+        with pytest.raises(ImportError, match="PyYAML is required"):
+            parsers._parse_yaml_file(str(tmp_path / "config.yml"))
+
 
 # ---------------------------------------------------------------------------
 # YAML Parsers Tests (if available)
@@ -400,6 +482,22 @@ class TestYamlParsers:
         assert config.jdbc_url == "mysql://localhost/mydb"
         assert config.source_format == ".yaml"
 
+    def test_parse_yaml_top_level_and_empty(self, tmp_path):
+        pytest.importorskip("yaml")
+        from securedblink.vault.parsers import _parse_yaml_file
+
+        empty = tmp_path / "empty.yml"
+        empty.write_text("[]\n")
+        assert not _parse_yaml_file(str(empty)).is_valid()
+        direct = tmp_path / "direct.yml"
+        direct.write_text("url: sqlite:///db\nuser: admin\ndriver: sqlite\n")
+        config = _parse_yaml_file(str(direct))
+        assert config.to_dict() == {
+            "jdbc_url": "sqlite:///db",
+            "username": "admin",
+            "driver": "sqlite",
+        }
+
 
 # ---------------------------------------------------------------------------
 # Store Tests (Mocked)
@@ -458,6 +556,7 @@ class TestVaultStore:
                 )
 
                 config = store.get("test")
+                assert config is not None
                 assert config["jdbc_url"] == "sqlite:///./test.db"
                 assert config["username"] == "user"
                 assert config["password"] == "pass"
@@ -569,3 +668,164 @@ class TestVaultStore:
 
                 # Verify it's gone from index
                 assert "test" not in store.list_aliases()
+
+    def test_store_metadata_exists_and_missing_get(self, tmp_path):
+        import securedblink.vault.store as store_module
+
+        index_dir = tmp_path / ".securedblink"
+        index_dir.mkdir()
+        index_file = index_dir / "aliases.json"
+        index_file.write_text(
+            json.dumps({"Prod": {"source": "path", "created_at": "now"}})
+        )
+        with (
+            patch.object(store_module, "INDEX_FILE", index_file),
+            patch.object(store_module, "INDEX_DIR", index_dir),
+            patch("keyring.get_password", return_value=None),
+        ):
+            store = store_module.VaultStore()
+            assert store.get("missing") is None
+            assert store.get_metadata("PROD") is None
+            assert store.list_all_metadata() == {
+                "Prod": {"source": "path", "created_at": "now"}
+            }
+            assert not store.exists("prod")
+
+    def test_store_get_handles_invalid_keyring_data(self):
+        import securedblink.vault.store as store_module
+
+        store = store_module.VaultStore()
+        with patch("keyring.get_password", return_value="not-json"):
+            assert store.get("prod") is None
+        with patch(
+            "keyring.get_password",
+            side_effect=KeyringError,
+        ):
+            assert store.get("prod") is None
+
+    def test_store_set_optional_fields_and_overwrite(self, tmp_path):
+        import securedblink.vault.store as store_module
+
+        index_dir = tmp_path / ".securedblink"
+        index_dir.mkdir()
+        index_file = index_dir / "aliases.json"
+        with (
+            patch.object(store_module, "INDEX_FILE", index_file),
+            patch.object(store_module, "INDEX_DIR", index_dir),
+            patch("keyring.set_password") as set_password,
+        ):
+            store = store_module.VaultStore()
+            store.set(
+                "PROD",
+                "postgresql://db",
+                username="user",
+                password="secret",
+                driver="driver",
+                source="path",
+            )
+            store.set("PROD", "sqlite:///db", overwrite=True)
+            assert set_password.call_count == 2
+            assert json.loads(set_password.call_args.args[2]) == {
+                "jdbc_url": "sqlite:///db"
+            }
+
+    def test_store_delete_ignores_keyring_error(self, tmp_path):
+        import securedblink.vault.store as store_module
+
+        index_dir = tmp_path / ".securedblink"
+        index_dir.mkdir()
+        index_file = index_dir / "aliases.json"
+        index_file.write_text(json.dumps({"prod": {"source": "direct"}}))
+        with (
+            patch.object(store_module, "INDEX_FILE", index_file),
+            patch.object(store_module, "INDEX_DIR", index_dir),
+            patch(
+                "keyring.delete_password",
+                side_effect=KeyringError,
+            ),
+        ):
+            store = store_module.VaultStore()
+            assert store.delete("PROD") is True
+
+    def test_store_index_load_and_save_failures(self, tmp_path):
+        import securedblink.vault.store as store_module
+
+        missing = tmp_path / "missing.json"
+        with patch.object(store_module, "INDEX_FILE", missing):
+            assert store_module._load_index() == {}
+
+        invalid = tmp_path / "invalid.json"
+        invalid.write_text("not-json")
+        with patch.object(store_module, "INDEX_FILE", invalid):
+            assert store_module._load_index() == {}
+
+        non_dict = tmp_path / "list.json"
+        non_dict.write_text("[]")
+        with patch.object(store_module, "INDEX_FILE", non_dict):
+            assert store_module._load_index() == {}
+
+        with patch.object(store_module, "INDEX_DIR", tmp_path / "new"):
+            store_module._ensure_index_dir()
+            assert (tmp_path / "new").is_dir()
+
+    def test_store_save_index_reports_replace_error(self, tmp_path):
+        import securedblink.vault.store as store_module
+
+        index_file = tmp_path / "aliases.json"
+        with (
+            patch.object(store_module, "INDEX_FILE", index_file),
+            patch.object(store_module, "INDEX_DIR", tmp_path),
+            patch.object(Path, "replace", side_effect=OSError("disk full")),
+        ):
+            with pytest.raises(store_module.VaultStoreError, match="disk full"):
+                store_module._save_index({"prod": {}})
+
+    def test_store_backend_detection(self):
+        import securedblink.vault.store as store_module
+
+        class Keyring:
+            pass
+
+        class ChainerKeyring:
+            pass
+
+        class SecretService:
+            pass
+
+        SecretService.__module__ = "keyring.backends.secretstorage"
+        with patch.object(store_module.keyring, "get_keyring", return_value=Keyring()):
+            assert not store_module._is_backend_secure()
+        with patch.object(
+            store_module.keyring, "get_keyring", return_value=ChainerKeyring()
+        ):
+            assert not store_module._is_backend_secure()
+        with patch.object(
+            store_module.keyring, "get_keyring", return_value=SecretService()
+        ):
+            assert store_module._is_backend_secure()
+
+    def test_store_backend_detection_handles_errors(self):
+        import securedblink.vault.store as store_module
+
+        with patch.object(
+            store_module.keyring,
+            "get_keyring",
+            side_effect=KeyringError("backend unavailable"),
+        ):
+            assert store_module._get_keyring_backend_name() == "unknown"
+            assert not store_module._is_backend_secure()
+
+    def test_verify_secure_backend_rejects_insecure_backend(self):
+        import securedblink.vault.store as store_module
+
+        with (
+            patch.object(
+                store_module, "_is_credentials_manager_available", return_value=False
+            ),
+            patch.object(store_module, "_is_backend_secure", return_value=False),
+            patch.object(
+                store_module, "_get_keyring_backend_name", return_value="fake.Keyring"
+            ),
+        ):
+            with pytest.raises(store_module.InsecureKeyringError, match="fake.Keyring"):
+                store_module.verify_secure_backend()
