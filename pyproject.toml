@@ -41,7 +41,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-    "mcp[cli]>=1.0",
+    "mcp[cli]>=1.0,<2.0.0",
     "sqlalchemy>=2.0",
     "psycopg2-binary>=2.9",   # PostgreSQL, included by default
     "keyring>=24.0",          # Secure credential storage
