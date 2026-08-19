@@ -1,6 +1,7 @@
 """Tests for securedblink.connections module."""
 
 import os
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -63,3 +64,33 @@ class TestConnectionManager:
         e1 = mgr.engine("TEST")
         e2 = mgr.engine("test")
         assert e1 is e2
+
+    def test_vault_names_and_all_names(self, monkeypatch):
+        monkeypatch.setenv("DB_ENV", "sqlite:///:memory:")
+        vault = Mock()
+        vault.list_aliases.return_value = ["vault", "env"]
+        with patch("securedblink.vault.get_vault_store", return_value=vault):
+            manager = ConnectionManager()
+            assert manager.vault_names() == ["vault", "env"]
+            assert manager.all_names() == ["env", "vault"]
+
+    def test_vault_engine_is_cached_and_case_insensitive(self):
+        vault = Mock()
+        vault.get.return_value = {"jdbc_url": "sqlite:///:memory:"}
+        vault.exists.return_value = True
+        with patch("securedblink.vault.get_vault_store", return_value=vault):
+            manager = ConnectionManager()
+            first = manager.get_engine_by_alias("PROD")
+            assert manager.engine("prod") is first
+            assert manager.is_vault_alias("PROD") is True
+
+    def test_vault_engine_errors(self):
+        vault = Mock()
+        with patch("securedblink.vault.get_vault_store", return_value=vault):
+            manager = ConnectionManager()
+            vault.get.return_value = None
+            with pytest.raises(ValueError, match="not found"):
+                manager.get_engine_by_alias("missing")
+            vault.get.return_value = {"username": "user"}
+            with pytest.raises(ValueError, match="no connection URL"):
+                manager.get_engine_by_alias("broken")
