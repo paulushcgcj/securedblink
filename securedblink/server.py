@@ -519,6 +519,18 @@ def main() -> None:
     mcp.run()
 
 
+def _notify_update() -> None:
+    """Print a non-blocking update notice when a newer release is available."""
+    from securedblink.update import check_for_update
+
+    status = check_for_update()
+    if status.update_available and status.latest_version:
+        log.info(
+            f"Update available: {status.installed_version} → {status.latest_version}. "
+            "Run `securedblink update` to upgrade."
+        )
+
+
 def cli_main(argv: list[str] | None = None) -> int:
     """Run the vault-management command-line interface.
 
@@ -530,9 +542,17 @@ def cli_main(argv: list[str] | None = None) -> int:
     the MCP stdio protocol.
     """
     import argparse
+    from securedblink.update import installed_version
 
     parser = argparse.ArgumentParser(
-        prog="securedblink", description="MCP server for multi-database access"
+        prog="securedblink",
+        description="MCP server for multi-database access\n\n"
+        f"Version: {installed_version()}",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {installed_version()}",
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -576,6 +596,16 @@ def cli_main(argv: list[str] | None = None) -> int:
     # List subcommand
     subparsers.add_parser("list", help="List all registered vault aliases")
 
+    # Update subcommand
+    update_parser = subparsers.add_parser(
+        "update", help="Check for updates and optionally upgrade"
+    )
+    update_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Apply the update with uv after checking",
+    )
+
     args = parser.parse_args(argv)
 
     if args.command is None:
@@ -583,6 +613,15 @@ def cli_main(argv: list[str] | None = None) -> int:
         main()
         return 0
 
+    # Notify about updates for normal commands (but not for help, version, or update)
+    if args.command not in ("update",) and "--help" not in (argv or []):
+        _notify_update()
+
+    from securedblink.update import (
+        apply_uv_upgrade,
+        check_for_update,
+        installation_guidance,
+    )
     from securedblink.vault.store import VaultStoreError, get_vault_store
 
     try:
@@ -638,6 +677,38 @@ def cli_main(argv: list[str] | None = None) -> int:
     except (VaultStoreError, ValueError, FileNotFoundError) as exc:
         log.error(f"Error: {exc}")
         return 1
+
+    # Handle update command separately
+    if args.command == "update":
+        status = check_for_update()
+        if status.error:
+            log.error(f"Update check skipped: {status.error}")
+            return 1
+        elif status.skipped:
+            log.info("Update checks are disabled by SECUREDBLINK_NO_UPDATE_CHECK=1.")
+            return 0
+        elif not status.update_available:
+            log.info(f"securedblink is up to date ({status.installed_version}).")
+            return 0
+        elif args.apply:
+            try:
+                result = apply_uv_upgrade()
+                message = (
+                    result.stdout.strip()
+                    or f"Updated securedblink from {status.installed_version} to {status.latest_version}."
+                )
+                log.info(message)
+            except RuntimeError as exc:
+                log.error(f"Error: {exc}")
+                return 1
+        else:
+            log.info(
+                f"Update available: {status.installed_version} → {status.latest_version}.\n"
+                f"Run `securedblink update --apply` to update explicitly.\n"
+                f"{installation_guidance()}"
+            )
+            return 0
+
     return 0
 
 
