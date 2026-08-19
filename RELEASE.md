@@ -65,7 +65,7 @@ uv tool install git-cliff
    - Publisher: GitHub Actions
    - Owner: `paulushcgcj`
    - Repository: `db-mcp`
-   - Workflow filename: `publish-pypi.yml`
+   - Workflow filename: `release.yml`
    - Environment name: `pypi`
 3. In GitHub, create an Actions **Environment** named `pypi` under
    **Settings → Environments**.
@@ -147,8 +147,8 @@ If you want to **review before publishing**, change `draft: false` to
 
 ### Step 8 — Automatic PyPI publish
 
-Publishing the GitHub Release triggers `publish-pypi.yml`.
-The workflow builds the package fresh with `uv build` and publishes via OIDC —
+The release workflow publishes the verified Python artifacts after creating the GitHub Release.
+The workflow downloads the verified `python-dist` artifact and publishes it via OIDC —
 no tokens required.
 
 Monitor progress at **Actions → Publish to PyPI**.

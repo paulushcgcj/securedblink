@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write   # needed to create releases and upload assets
+  id-token: write   # needed for PyPI OIDC publishing
 
 jobs:
   # ── 1. Generate changelog ─────────────────────────────────────────────────
@@ -42,7 +43,7 @@ jobs:
           - os: ubuntu-latest
             asset_name: db-mcp-linux-x86_64
             artifact_suffix: linux-x86_64
-          - os: macos-13             # last Intel runner — covers x86_64 Mac users
+          - os: macos-15-intel       # Intel runner — covers x86_64 Mac users
             asset_name: db-mcp-macos-x86_64
             artifact_suffix: macos-x86_64
           - os: macos-latest         # Apple Silicon (M-series)
@@ -59,9 +60,17 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Update version to match tag
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          sed -i.bak "s/^version = \".*\"/version = \"${TAG_VERSION}\"/" pyproject.toml
+          rm -f pyproject.toml.bak
+          uv lock
+
       - name: Install project + PyInstaller
         # --frozen ensures CI uses the committed uv.lock exactly — no silent dep drift
-        run: uv sync --frozen
+        run: uv sync --frozen --all-extras
 
       - name: Build binary (Linux)
         if: runner.os == 'Linux'
@@ -90,6 +99,7 @@ jobs:
 
       - name: Build binary (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
         run: |
           uv run pyinstaller `
             --onefile `
@@ -120,8 +130,28 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Update version to match tag
+        shell: bash
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          sed -i.bak "s/^version = \".*\"/version = \"${TAG_VERSION}\"/" pyproject.toml
+          rm -f pyproject.toml.bak
+          uv lock
+
       - name: Build wheel and source distribution
-        run: uv build
+        shell: bash
+        run: |
+          uv build
+
+      - name: Validate Python artifacts
+        shell: bash
+        run: |
+          test -f dist/*.whl
+          test -f dist/*.tar.gz
+          uvx --from check-wheel-contents check-wheel-contents dist/*.whl
+          WHEEL=$(ls dist/*.whl)
+          uv run --isolated --no-project --with "${WHEEL}" python -c \
+            "import db_mcp; from importlib.metadata import version; assert version('db-mcp') == '${GITHUB_REF_NAME#v}'"
 
       - name: Upload dist artifacts
         uses: actions/upload-artifact@v4
@@ -155,3 +185,28 @@ jobs:
           files: release-assets/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 5. Publish to PyPI ────────────────────────────────────────────────────
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [create-release]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/db-mcp/
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Python distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-dist
+          path: dist/
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Publish to PyPI (OIDC — no token needed)
+        run: uv publish --trusted-publishing always

@@ -105,20 +105,19 @@ def _is_credentials_manager_available() -> bool:
         if system == "darwin":
             from keyring.backends import macOS
 
-            return isinstance(backend, macOS.Keychain)
+            return isinstance(backend, macOS.Keychain)  # type: ignore[attr-defined]
 
         # On Linux, check for SecretService
         if system == "linux":
             try:
-                from keyring.backends import Linux
+                from keyring.backends import Linux  # type: ignore[attr-defined]
 
                 return isinstance(backend, Linux.SecretService)
             except ImportError:
                 pass
             # Try to import the libsecret backend
             try:
-                from keyring.backends import secretstorage
-
+                __import__("keyring.backends.secretstorage")
                 return True
             except ImportError:
                 pass
@@ -204,7 +203,7 @@ def _load_index() -> dict[str, Any]:
         return {}
 
     try:
-        with open(INDEX_FILE, "r", encoding="utf-8") as f:
+        with open(INDEX_FILE, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
             return data
@@ -231,7 +230,7 @@ def _save_index(data: dict[str, Any]) -> None:
     except OSError as e:
         if temp_file.exists():
             temp_file.unlink()
-        raise VaultStoreError(f"Failed to save index file: {e}")
+        raise VaultStoreError(f"Failed to save index file: {e}") from e
 
 
 class VaultStore:
@@ -269,7 +268,7 @@ class VaultStore:
                 return None
 
             creds = json.loads(creds_json)
-            return creds
+            return dict(creds)
         except (json.JSONDecodeError, keyring.errors.KeyringError):
             # If we can't read the stored data, treat as not found
             return None

@@ -421,7 +421,7 @@ def query(connection_name: str, sql: str) -> str:
     if not rows:
         return "Query returned 0 rows."
 
-    out = _fmt_table(cols, rows)
+    out = _fmt_table(cols, [tuple(row) for row in rows])
     if truncated:
         out += f"\n\nResults capped at {_MAX_ROWS} rows. Add `LIMIT` to your query."
     else:

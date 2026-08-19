@@ -3,7 +3,6 @@
 import os
 
 import pytest
-from sqlalchemy import create_engine
 
 from db_mcp.connections import ConnectionManager, _load_urls
 

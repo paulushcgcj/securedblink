@@ -73,7 +73,7 @@ def _parse_env_file(file_path: str) -> ConnectionConfig:
     """
     config = ConnectionConfig(source_format=".env")
 
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         lines = f.readlines()
 
     # First pass: look for DB_URL or similar
@@ -139,7 +139,7 @@ def _parse_properties_file(file_path: str) -> ConnectionConfig:
     """
     config = ConnectionConfig(source_format=".properties")
 
-    with open(file_path, "r", encoding="iso-8859-1") as f:
+    with open(file_path, encoding="iso-8859-1") as f:
         lines = f.readlines()
 
     for line in lines:
@@ -250,7 +250,7 @@ def _parse_yaml_file(file_path: str) -> ConnectionConfig:
 
     config = ConnectionConfig(source_format=".yaml")
 
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
 
     if not data or not isinstance(data, dict):

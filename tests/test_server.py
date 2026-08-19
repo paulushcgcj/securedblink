@@ -4,12 +4,10 @@ import os
 import time
 from unittest.mock import MagicMock, patch
 
-import pytest
 from sqlalchemy import create_engine, text
 
 import db_mcp.server as srv
 from db_mcp.connections import ConnectionManager
-
 
 # ---------------------------------------------------------------------------
 # Helpers

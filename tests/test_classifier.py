@@ -4,7 +4,6 @@ import pytest
 
 from db_mcp.classifier import _first_keyword, _strip_comments, classify
 
-
 # ---------------------------------------------------------------------------
 # _strip_comments
 # ---------------------------------------------------------------------------

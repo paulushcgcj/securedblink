@@ -1,8 +1,5 @@
 """Shared fixtures for db-mcp tests."""
 
-import os
-import sqlite3
-
 import pytest
 from sqlalchemy import create_engine, text
 
