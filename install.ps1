@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 
-$Repo       = "paulushcgcj/dbbridge"
-$Binary     = "dbbridge"
+$Repo       = "paulushcgcj/securedblink"
+$Binary     = "securedblink"
 $InstallDir = "$env:LOCALAPPDATA\Programs\$Binary"
 
 $release = Invoke-RestMethod "https://api.github.com/repos/$Repo/releases/latest"

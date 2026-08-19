@@ -330,7 +330,7 @@ wheels = [
 ]
 
 [[package]]
-name = "dbbridge"
+name = "securedblink"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

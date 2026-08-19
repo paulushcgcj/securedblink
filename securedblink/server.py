@@ -1,4 +1,4 @@
-"""dbbridge: MCP server for multi-database access with LLM permission gating.
+"""securedblink: MCP server for multi-database access with LLM permission gating.
 
 Tools:
   list_connections         list configured DB connections
@@ -22,17 +22,17 @@ from mcp.server.fastmcp import FastMCP
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import text
 
-from dbbridge.classifier import classify
-from dbbridge.connections import ConnectionManager
-from dbbridge.log import get_logger
-from dbbridge.vault import (
+from securedblink.classifier import classify
+from securedblink.connections import ConnectionManager
+from securedblink.log import get_logger
+from securedblink.vault import (
     get_resolver,
     get_vault_store,
     parse_config_file,
     redact_exception,
     validate_and_get_absolute_path,
 )
-from dbbridge.vault.store import (
+from securedblink.vault.store import (
     InsecureKeyringError,
     VaultStoreError,
     verify_secure_backend,
@@ -43,9 +43,9 @@ from dbbridge.vault.store import (
 # ---------------------------------------------------------------------------
 
 mcp = FastMCP(
-    "dbbridge",
+    "securedblink",
     instructions="""
-You have access to one or more databases via dbbridge.
+You have access to one or more databases via securedblink.
 
 ## Rules you MUST follow
 
@@ -63,7 +63,7 @@ You have access to one or more databases via dbbridge.
 """,
 )
 
-log = get_logger("dbbridge.server")
+log = get_logger("securedblink.server")
 
 _db = ConnectionManager()
 _MAX_ROWS = int(os.getenv("DB_MAX_ROWS", "500"))
@@ -194,7 +194,7 @@ def vault_register_from_path(
 
     Raises:
         ValueError: If the file path is outside the allow-listed roots
-                   (configure with DBBRIDGE_ALLOWED_ROOTS environment variable)
+                   (configure with SECUREDBLINK_ALLOWED_ROOTS environment variable)
 
     Supported formats:
         - .env: DB_URL=jdbc:... , DB_USERNAME=..., DB_PASSWORD=...
@@ -202,8 +202,8 @@ def vault_register_from_path(
         - .yml/.yaml: spring.datasource.url: jdbc:..., spring.datasource.username: ...
 
     Note:
-        The file must be within a directory listed in DBBRIDGE_ALLOWED_ROOTS.
-        Set DBBRIDGE_ALLOWED_ROOTS=/path1:/path2 to configure allowed roots.
+        The file must be within a directory listed in SECUREDBLINK_ALLOWED_ROOTS.
+        Set SECUREDBLINK_ALLOWED_ROOTS=/path1:/path2 to configure allowed roots.
         Credentials are NEVER returned in responses, logs, or error messages.
     """
     try:
@@ -532,7 +532,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     import argparse
 
     parser = argparse.ArgumentParser(
-        prog="dbbridge", description="MCP server for multi-database access"
+        prog="securedblink", description="MCP server for multi-database access"
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -583,7 +583,7 @@ def cli_main(argv: list[str] | None = None) -> int:
         main()
         return 0
 
-    from dbbridge.vault.store import VaultStoreError, get_vault_store
+    from securedblink.vault.store import VaultStoreError, get_vault_store
 
     try:
         if args.command == "register":
@@ -599,8 +599,8 @@ def cli_main(argv: list[str] | None = None) -> int:
             )
             log.info(f"Alias {args.alias!r} registered in vault.")
         elif args.command == "register-from-path":
-            from dbbridge.vault.parsers import parse_config_file
-            from dbbridge.vault.pathguard import validate_and_get_absolute_path
+            from securedblink.vault.parsers import parse_config_file
+            from securedblink.vault.pathguard import validate_and_get_absolute_path
 
             absolute_path = validate_and_get_absolute_path(args.file_path)
             config = parse_config_file(absolute_path)

@@ -1,10 +1,10 @@
-"""Tests for dbbridge.connections module."""
+"""Tests for securedblink.connections module."""
 
 import os
 
 import pytest
 
-from dbbridge.connections import ConnectionManager, _load_urls
+from securedblink.connections import ConnectionManager, _load_urls
 
 
 class TestLoadUrls:

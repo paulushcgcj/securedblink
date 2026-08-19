@@ -1,4 +1,4 @@
-"""dbbridge credential vault.
+"""securedblink credential vault.
 
 This module provides a secure credential vault for storing database connection
 configuration. It uses the keyring library for secure storage and maintains
@@ -18,30 +18,30 @@ Security features:
 - All logging and exception messages are redacted to prevent credential leaks
 
 Configuration:
-- Set DBBRIDGE_ALLOWED_ROOTS to a colon-separated list of directories for
-  path-based registration: DBBRIDGE_ALLOWED_ROOTS=/path/to/configs:/another/path
+- Set SECUREDBLINK_ALLOWED_ROOTS to a colon-separated list of directories for
+  path-based registration: SECUREDBLINK_ALLOWED_ROOTS=/path/to/configs:/another/path
 """
 
-from dbbridge.vault.parsers import (
+from securedblink.vault.parsers import (
     ConnectionConfig,
     parse_config_file,
 )
-from dbbridge.vault.pathguard import (
+from securedblink.vault.pathguard import (
     get_allowed_roots,
     is_path_allowed,
     validate_and_get_absolute_path,
 )
-from dbbridge.vault.redact import (
+from securedblink.vault.redact import (
     redact_connection_dict,
     redact_exception,
     redact_for_logging,
     redact_string,
 )
-from dbbridge.vault.resolver import (
+from securedblink.vault.resolver import (
     ConnectionResolver,
     get_resolver,
 )
-from dbbridge.vault.store import (
+from securedblink.vault.store import (
     InsecureKeyringError,
     VaultStore,
     VaultStoreError,

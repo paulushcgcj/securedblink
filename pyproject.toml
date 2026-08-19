@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "dbbridge"
+name = "securedblink"
 version = "0.1.0"
 description = "MCP server for multi-database access with LLM permission gating"
 readme = "README.md"
@@ -55,14 +55,14 @@ mssql = ["pyodbc>=5.0"]
 yaml = ["pyyaml>=6.0"]  # For parsing .yml/.yaml config files
 
 [project.scripts]
-dbbridge = "dbbridge.server:cli_main"
+securedblink = "securedblink.server:cli_main"
 
 [project.urls]
-Homepage      = "https://github.com/paulushcgcj/dbbridge"
-Documentation = "https://github.com/paulushcgcj/dbbridge#readme"
-Repository    = "https://github.com/paulushcgcj/dbbridge"
-"Bug Tracker" = "https://github.com/paulushcgcj/dbbridge/issues"
-Changelog     = "https://github.com/paulushcgcj/dbbridge/blob/main/CHANGELOG.md"
+Homepage      = "https://github.com/paulushcgcj/securedblink"
+Documentation = "https://github.com/paulushcgcj/securedblink#readme"
+Repository    = "https://github.com/paulushcgcj/securedblink"
+"Bug Tracker" = "https://github.com/paulushcgcj/securedblink/issues"
+Changelog     = "https://github.com/paulushcgcj/securedblink/blob/main/CHANGELOG.md"
 
 # uv-native dependency groups (consumed by `uv sync --group dev|test` in CI).
 # PyInstaller lives here so `uv sync --frozen` in release.yml installs it
@@ -88,14 +88,14 @@ python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = [
     "--strict-markers",
-    "--cov=dbbridge",
+    "--cov=securedblink",
     "--cov-report=term-missing",
     "--cov-report=html",
     "--cov-fail-under=95",
 ]
 
 [tool.coverage.run]
-source = ["dbbridge"]
+source = ["securedblink"]
 omit = ["*/tests/*", "*/test_*.py"]
 
 [tool.coverage.report]
@@ -125,7 +125,7 @@ select = [
 ignore = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["dbbridge"]
+known-first-party = ["securedblink"]
 
 [tool.mypy]
 strict = true
@@ -136,4 +136,4 @@ module = ["yaml", "keyring.*"]
 ignore_missing_imports = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["dbbridge"]
+packages = ["securedblink"]

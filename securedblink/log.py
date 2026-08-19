@@ -1,4 +1,4 @@
-"""Structured logging configuration for dbbridge.
+"""Structured logging configuration for securedblink.
 
 All log output is written to **stderr**.  stdout is reserved for the MCP
 stdio protocol — writing anything else there corrupts the protocol channel
@@ -64,7 +64,7 @@ def get_logger(name: str | None = None) -> FilteringBoundLogger:
     """Return a module-scoped structlog logger.
 
     Args:
-        name: Logger name (typically ``"dbbridge.<module>"``). Used only for
+        name: Logger name (typically ``"securedblink.<module>"``). Used only for
             debugging context; the console renderer shows it in the output.
 
     Returns:

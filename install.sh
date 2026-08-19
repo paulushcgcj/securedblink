@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="paulushcgcj/dbbridge"
-BINARY="dbbridge"
+REPO="paulushcgcj/securedblink"
+BINARY="securedblink"
 INSTALL_DIR="/usr/local/bin"
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')

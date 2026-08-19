@@ -1,4 +1,4 @@
-"""Tests for dbbridge.vault module."""
+"""Tests for securedblink.vault module."""
 
 import json
 from pathlib import Path
@@ -6,18 +6,18 @@ from unittest.mock import patch
 
 import pytest
 
-from dbbridge.vault.parsers import (
+from securedblink.vault.parsers import (
     ConnectionConfig,
     _parse_env_file,
     _parse_properties_file,
     parse_config_file,
 )
-from dbbridge.vault.pathguard import (
+from securedblink.vault.pathguard import (
     get_allowed_roots,
     is_path_allowed,
     validate_and_get_absolute_path,
 )
-from dbbridge.vault.redact import (
+from securedblink.vault.redact import (
     redact_connection_dict,
     redact_exception,
     redact_for_logging,
@@ -109,35 +109,35 @@ class TestPathGuard:
     """Tests for path validation."""
 
     def test_get_allowed_roots_empty(self, monkeypatch):
-        # Ensure DBBRIDGE_ALLOWED_ROOTS is not set
-        monkeypatch.delenv("DBBRIDGE_ALLOWED_ROOTS", raising=False)
+        # Ensure SECUREDBLINK_ALLOWED_ROOTS is not set
+        monkeypatch.delenv("SECUREDBLINK_ALLOWED_ROOTS", raising=False)
         roots = get_allowed_roots()
         assert roots == []
 
     def test_get_allowed_roots_single(self, monkeypatch):
-        monkeypatch.setenv("DBBRIDGE_ALLOWED_ROOTS", "/tmp")
+        monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", "/tmp")
         roots = get_allowed_roots()
         assert "/tmp" in roots
 
     def test_get_allowed_roots_multiple(self, monkeypatch):
-        monkeypatch.setenv("DBBRIDGE_ALLOWED_ROOTS", "/tmp:/home/user/configs")
+        monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", "/tmp:/home/user/configs")
         roots = get_allowed_roots()
         assert "/tmp" in roots
         assert "/home/user/configs" in roots
 
     def test_get_allowed_roots_expands_user(self, monkeypatch):
-        monkeypatch.setenv("DBBRIDGE_ALLOWED_ROOTS", "~/configs")
+        monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", "~/configs")
         roots = get_allowed_roots()
         assert any(str(Path.home()) in r for r in roots)
 
     def test_is_path_allowed_not_configured(self, monkeypatch):
-        monkeypatch.delenv("DBBRIDGE_ALLOWED_ROOTS", raising=False)
-        with pytest.raises(ValueError, match="DBBRIDGE_ALLOWED_ROOTS"):
+        monkeypatch.delenv("SECUREDBLINK_ALLOWED_ROOTS", raising=False)
+        with pytest.raises(ValueError, match="SECUREDBLINK_ALLOWED_ROOTS"):
             is_path_allowed("/tmp/test.env")
 
     def test_is_path_allowed_within_root(self, monkeypatch, tmp_path):
         # Configure the tmp_path as allowed
-        monkeypatch.setenv("DBBRIDGE_ALLOWED_ROOTS", str(tmp_path))
+        monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(tmp_path))
 
         # Create a test file
         test_file = tmp_path / "test.env"
@@ -149,7 +149,7 @@ class TestPathGuard:
         # Configure a different directory as allowed
         allowed_dir = tmp_path / "allowed"
         allowed_dir.mkdir()
-        monkeypatch.setenv("DBBRIDGE_ALLOWED_ROOTS", str(allowed_dir))
+        monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(allowed_dir))
 
         # Create a file outside the allowed directory
         outside_file = tmp_path / "outside" / "test.env"
@@ -162,7 +162,7 @@ class TestPathGuard:
         # Configure a specific subdirectory as allowed
         allowed_dir = tmp_path / "allowed"
         allowed_dir.mkdir()
-        monkeypatch.setenv("DBBRIDGE_ALLOWED_ROOTS", str(allowed_dir))
+        monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(allowed_dir))
 
         # Create a subdirectory and a real file inside the allowed dir
         subdir = allowed_dir / "subdir"
@@ -190,7 +190,7 @@ class TestPathGuard:
     def test_symlink_traversal_rejected(self, monkeypatch, tmp_path):
         """Test that symlinks pointing outside allowed roots are rejected."""
         # Configure the tmp_path as allowed
-        monkeypatch.setenv("DBBRIDGE_ALLOWED_ROOTS", str(tmp_path))
+        monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(tmp_path))
 
         # Create a directory outside the allowed root
         outside_dir = Path(tmp_path).parent / "outside_configs"
@@ -214,7 +214,7 @@ class TestPathGuard:
             pass
 
     def test_validate_and_get_absolute_path(self, monkeypatch, tmp_path):
-        monkeypatch.setenv("DBBRIDGE_ALLOWED_ROOTS", str(tmp_path))
+        monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(tmp_path))
 
         test_file = tmp_path / "test.env"
         test_file.write_text("DB_URL=sqlite:///./test.db")
@@ -355,7 +355,7 @@ class TestYamlParsers:
         """Test YAML parsing if PyYAML is available."""
         pytest.importorskip("yaml")
 
-        from dbbridge.vault.parsers import _parse_yaml_file
+        from securedblink.vault.parsers import _parse_yaml_file
 
         yaml_file = tmp_path / "application.yml"
         yaml_file.write_text(
@@ -376,7 +376,7 @@ class TestYamlParsers:
         """Test simple YAML parsing if PyYAML is available."""
         pytest.importorskip("yaml")
 
-        from dbbridge.vault.parsers import _parse_yaml_file
+        from securedblink.vault.parsers import _parse_yaml_file
 
         yaml_file = tmp_path / "config.yml"
         yaml_file.write_text(
@@ -410,7 +410,7 @@ class TestVaultStore:
     """Tests for VaultStore (with mocked keyring)."""
 
     def test_vault_store_set_and_get(self, tmp_path, monkeypatch):
-        import dbbridge.vault.store as store_module
+        import securedblink.vault.store as store_module
 
         # Mock keyring
         with (
@@ -420,7 +420,7 @@ class TestVaultStore:
             mock_get_pw.return_value = None
 
             # Set up index file in temp directory
-            index_dir = tmp_path / ".dbbridge"
+            index_dir = tmp_path / ".securedblink"
             index_dir.mkdir()
             index_file = index_dir / "aliases.json"
 
@@ -432,7 +432,7 @@ class TestVaultStore:
                 # Clear the global _vault_store to ensure fresh instance
                 store_module._vault_store = None
 
-                from dbbridge.vault.store import VaultStore
+                from securedblink.vault.store import VaultStore
 
                 store = VaultStore()
 
@@ -463,11 +463,11 @@ class TestVaultStore:
                 assert config["password"] == "pass"
 
     def test_vault_store_list_aliases(self, tmp_path, monkeypatch):
-        import dbbridge.vault.store as store_module
+        import securedblink.vault.store as store_module
 
         # Mock keyring
         with patch("keyring.get_password"):
-            index_dir = tmp_path / ".dbbridge"
+            index_dir = tmp_path / ".securedblink"
             index_dir.mkdir()
             index_file = index_dir / "aliases.json"
 
@@ -490,7 +490,7 @@ class TestVaultStore:
             ):
                 store_module._vault_store = None
 
-                from dbbridge.vault.store import VaultStore
+                from securedblink.vault.store import VaultStore
 
                 store = VaultStore()
                 aliases = store.list_aliases()
@@ -499,10 +499,10 @@ class TestVaultStore:
                 assert "beta" in aliases
 
     def test_vault_store_duplicate_alias_raises(self, tmp_path, monkeypatch):
-        import dbbridge.vault.store as store_module
+        import securedblink.vault.store as store_module
 
         with patch("keyring.get_password"):
-            index_dir = tmp_path / ".dbbridge"
+            index_dir = tmp_path / ".securedblink"
             index_dir.mkdir()
             index_file = index_dir / "aliases.json"
 
@@ -524,7 +524,7 @@ class TestVaultStore:
             ):
                 store_module._vault_store = None
 
-                from dbbridge.vault.store import VaultStore, VaultStoreError
+                from securedblink.vault.store import VaultStore, VaultStoreError
 
                 store = VaultStore()
 
@@ -534,10 +534,10 @@ class TestVaultStore:
                     )
 
     def test_vault_store_delete(self, tmp_path, monkeypatch):
-        import dbbridge.vault.store as store_module
+        import securedblink.vault.store as store_module
 
         with patch("keyring.delete_password"):
-            index_dir = tmp_path / ".dbbridge"
+            index_dir = tmp_path / ".securedblink"
             index_dir.mkdir()
             index_file = index_dir / "aliases.json"
 
@@ -559,7 +559,7 @@ class TestVaultStore:
             ):
                 store_module._vault_store = None
 
-                from dbbridge.vault.store import VaultStore
+                from securedblink.vault.store import VaultStore
 
                 store = VaultStore()
 

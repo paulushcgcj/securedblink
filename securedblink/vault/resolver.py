@@ -6,7 +6,7 @@ from vault aliases, with fallback to environment variables.
 
 from typing import Any
 
-from dbbridge.vault.store import get_vault_store
+from securedblink.vault.store import get_vault_store
 
 
 class ConnectionResolver:

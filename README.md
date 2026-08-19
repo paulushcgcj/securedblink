@@ -1,9 +1,9 @@
-# dbbridge
+# securedblink
 
-[![PyPI version](https://img.shields.io/pypi/v/dbbridge.svg)](https://pypi.org/project/dbbridge/)
-[![Python versions](https://img.shields.io/pypi/pyversions/dbbridge.svg)](https://pypi.org/project/dbbridge/)
-[![CI](https://github.com/paulushcgcj/dbbridge/actions/workflows/ci.yml/badge.svg)](https://github.com/paulushcgcj/dbbridge/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/paulushcgcj/dbbridge.svg)](LICENSE)
+[![PyPI version](https://img.shields.io/pypi/v/securedblink.svg)](https://pypi.org/project/securedblink/)
+[![Python versions](https://img.shields.io/pypi/pyversions/securedblink.svg)](https://pypi.org/project/securedblink/)
+[![CI](https://github.com/paulushcgcj/securedblink/actions/workflows/ci.yml/badge.svg)](https://github.com/paulushcgcj/securedblink/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/paulushcgcj/securedblink.svg)](LICENSE)
 
 MCP server that gives LLM agents read access to any database, with built-in gates for writes.
 
@@ -11,28 +11,28 @@ MCP server that gives LLM agents read access to any database, with built-in gate
 
 **Mac / Linux**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/paulushcgcj/dbbridge/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/paulushcgcj/securedblink/main/install.sh | bash
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-irm https://raw.githubusercontent.com/paulushcgcj/dbbridge/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/paulushcgcj/securedblink/main/install.ps1 | iex
 ```
 
 **Via pip / uv (all platforms)**
 
 ```bash
-pip install dbbridge
+pip install securedblink
 # or
-uv tool install dbbridge
+uv tool install securedblink
 ```
 
-> **macOS note:** If you see a security warning on first run, clear the quarantine flag once: `xattr -d com.apple.quarantine /usr/local/bin/dbbridge`
+> **macOS note:** If you see a security warning on first run, clear the quarantine flag once: `xattr -d com.apple.quarantine /usr/local/bin/securedblink`
 
-## Why dbbridge
+## Why securedblink
 
-LLMs handle read-only database work: schema exploration, query writing, data analysis. A stray `DELETE` or `DROP` from an agent can wipe production data. dbbridge draws a hard line: reads go through, writes require the agent to show you exactly what it plans to do and wait for your explicit approval.
+LLMs handle read-only database work: schema exploration, query writing, data analysis. A stray `DELETE` or `DROP` from an agent can wipe production data. securedblink draws a hard line: reads go through, writes require the agent to show you exactly what it plans to do and wait for your explicit approval.
 
 ## Features
 
@@ -60,8 +60,8 @@ Any other database works too. Install the right SQLAlchemy driver and use its UR
 
 ```bash
 # Clone the repo
-git clone git@github.com:paulushcgcj/dbbridge.git
-cd dbbridge
+git clone git@github.com:paulushcgcj/securedblink.git
+cd securedblink
 
 # Run with a local SQLite database
 DB_LOCAL=sqlite:///./test.db ./run.sh
@@ -93,7 +93,7 @@ DB_LOCAL=sqlite:///./test.db ./run.sh
 ./run.sh
 ```
 
-When your IDE launches dbbridge, point it at `run.sh` instead of calling `uv run dbbridge` directly. The script handles driver installation so you don't have to `pip install` extras like `[oracle]` or `[mysql]` by hand.
+When your IDE launches securedblink, point it at `run.sh` instead of calling `uv run securedblink` directly. The script handles driver installation so you don't have to `pip install` extras like `[oracle]` or `[mysql]` by hand.
 
 ## Connect your IDE
 
@@ -105,9 +105,9 @@ Add to `.vscode/mcp.json` (workspace) or `~/.vscode/mcp.json` (global):
 ```json
 {
   "servers": {
-    "dbbridge": {
+    "securedblink": {
       "type": "stdio",
-      "command": "/absolute/path/to/dbbridge/run.sh",
+      "command": "/absolute/path/to/securedblink/run.sh",
       "env": {
         "DB_PROD": "postgresql://user:pass@host:5432/mydb",
         "DB_LOCAL": "sqlite:///./local.db",
@@ -128,9 +128,9 @@ Add to `~/.config/opencode/opencode.jsonc` or `.opencode.json` in your project:
 ```json
 {
   "mcp": {
-    "dbbridge": {
+    "securedblink": {
       "type": "local",
-      "command": ["/absolute/path/to/dbbridge/run.sh"],
+      "command": ["/absolute/path/to/securedblink/run.sh"],
       "environment": {
         "DB_PROD": "postgresql://user:pass@host:5432/mydb",
         "DB_LOCAL": "sqlite:///./local.db",
@@ -195,7 +195,7 @@ The SQLAlchemy dialect registry resolves the driver from the URL prefix.
 |----------------|---------|--------------------------------------------------|
 | `DB_<NAME>`    | —       | Connection URL for a named database              |
 | `DB_MAX_ROWS`  | `500`   | Max rows returned per `query` call               |
-| `DBBRIDGE_ALLOWED_ROOTS` | — | Colon-separated list of directories for vault file registration |
+| `SECUREDBLINK_ALLOWED_ROOTS` | — | Colon-separated list of directories for vault file registration |
 
 ## Credential Vault
 
@@ -241,7 +241,7 @@ query(connection_name="prod", sql="SELECT * FROM users")
 
 First, configure the allowed directories:
 ```bash
-export DBBRIDGE_ALLOWED_ROOTS="/path/to/configs:/another/path"
+export SECUREDBLINK_ALLOWED_ROOTS="/path/to/configs:/another/path"
 ```
 
 Then register:
@@ -272,11 +272,11 @@ vault_revoke(alias="prod")
 
 #### Command-line interface
 
-You can also register connections from the terminal without going through the agent. Use the `dbbridge` command with a subcommand (or `python -m dbbridge.server` if you run from a source checkout):
+You can also register connections from the terminal without going through the agent. Use the `securedblink` command with a subcommand (or `python -m securedblink.server` if you run from a source checkout):
 
 ```bash
 # Register a connection directly (prompts-free, useful for scripting)
-dbbridge register \
+securedblink register \
   --alias prod \
   --jdbc-url "postgresql://user:password@host:5432/mydb" \
   --username user \
@@ -284,23 +284,23 @@ dbbridge register \
   --driver org.postgresql.Driver
 
 # Overwrite an existing alias
-dbbridge register --alias prod --jdbc-url "..." --overwrite
+securedblink register --alias prod --jdbc-url "..." --overwrite
 
-# Register from a config file (requires DBBRIDGE_ALLOWED_ROOTS)
-export DBBRIDGE_ALLOWED_ROOTS="/path/to/configs"
-dbbridge register-from-path --alias prod --file-path /path/to/configs/prod.env
+# Register from a config file (requires SECUREDBLINK_ALLOWED_ROOTS)
+export SECUREDBLINK_ALLOWED_ROOTS="/path/to/configs"
+securedblink register-from-path --alias prod --file-path /path/to/configs/prod.env
 
 # List registered aliases
-dbbridge list
+securedblink list
 ```
 
-Running `dbbridge` with no subcommand starts the MCP server.
+Running `securedblink` with no subcommand starts the MCP server.
 
-> **Note (macOS):** `DBBRIDGE_ALLOWED_ROOTS` is compared against resolved paths. `/tmp` resolves to `/private/tmp`, so use `DBBRIDGE_ALLOWED_ROOTS="/private/tmp"` if your config files live in `/tmp`.
+> **Note (macOS):** `SECUREDBLINK_ALLOWED_ROOTS` is compared against resolved paths. `/tmp` resolves to `/private/tmp`, so use `SECUREDBLINK_ALLOWED_ROOTS="/private/tmp"` if your config files live in `/tmp`.
 
 ### Security requirements
 
-- The `vault_register_from_path` tool **requires** `DBBRIDGE_ALLOWED_ROOTS` to be set
+- The `vault_register_from_path` tool **requires** `SECUREDBLINK_ALLOWED_ROOTS` to be set
 - Paths outside the allow-listed roots are **rejected** — no exceptions
 - All logging and exception messages are **redacted** to prevent credential leaks
 - No tool returns plaintext credentials under any circumstance

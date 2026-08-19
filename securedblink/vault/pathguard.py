@@ -11,13 +11,13 @@ import os
 def get_allowed_roots() -> list[str]:
     """Get the list of allow-listed root directories from environment variable.
 
-    The DBBRIDGE_ALLOWED_ROOTS environment variable should contain a
+    The SECUREDBLINK_ALLOWED_ROOTS environment variable should contain a
     colon-separated list of directory paths.
 
     Returns:
         List of absolute path strings, or empty list if not configured.
     """
-    roots_env = os.environ.get("DBBRIDGE_ALLOWED_ROOTS", "")
+    roots_env = os.environ.get("SECUREDBLINK_ALLOWED_ROOTS", "")
     if not roots_env:
         return []
 
@@ -45,15 +45,15 @@ def is_path_allowed(file_path: str) -> bool:
         True if the path is within an allow-listed root, False otherwise
 
     Raises:
-        ValueError: If DBBRIDGE_ALLOWED_ROOTS is not configured
+        ValueError: If SECUREDBLINK_ALLOWED_ROOTS is not configured
     """
     allowed_roots = get_allowed_roots()
 
     if not allowed_roots:
         raise ValueError(
-            "DBBRIDGE_ALLOWED_ROOTS environment variable is not configured. "
+            "SECUREDBLINK_ALLOWED_ROOTS environment variable is not configured. "
             "Cannot register connections from file paths without allow-listed roots. "
-            "Set DBBRIDGE_ALLOWED_ROOTS to a colon-separated list of directories."
+            "Set SECUREDBLINK_ALLOWED_ROOTS to a colon-separated list of directories."
         )
 
     # Normalize the input path
@@ -92,7 +92,7 @@ def validate_and_get_absolute_path(file_path: str) -> str:
     """Validate a file path and return its absolute, resolved path.
 
     This function:
-    1. Checks that DBBRIDGE_ALLOWED_ROOTS is configured
+    1. Checks that SECUREDBLINK_ALLOWED_ROOTS is configured
     2. Validates the path is within an allow-listed root
     3. Returns the resolved absolute path
 
@@ -103,14 +103,14 @@ def validate_and_get_absolute_path(file_path: str) -> str:
         The resolved absolute path
 
     Raises:
-        ValueError: If the path is not allowed or DBBRIDGE_ALLOWED_ROOTS not configured
+        ValueError: If the path is not allowed or SECUREDBLINK_ALLOWED_ROOTS not configured
         FileNotFoundError: If the file doesn't exist
     """
     if not is_path_allowed(file_path):
         raise ValueError(
             f"Path '{file_path}' is not within an allow-listed root directory. "
             f"Allowed roots: {get_allowed_roots()}. "
-            "Set DBBRIDGE_ALLOWED_ROOTS to include the parent directory of this file."
+            "Set SECUREDBLINK_ALLOWED_ROOTS to include the parent directory of this file."
         )
 
     # Return the resolved absolute path

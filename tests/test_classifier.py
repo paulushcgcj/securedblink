@@ -1,8 +1,8 @@
-"""Tests for dbbridge.classifier module."""
+"""Tests for securedblink.classifier module."""
 
 import pytest
 
-from dbbridge.classifier import _first_keyword, _strip_comments, classify
+from securedblink.classifier import _first_keyword, _strip_comments, classify
 
 # ---------------------------------------------------------------------------
 # _strip_comments

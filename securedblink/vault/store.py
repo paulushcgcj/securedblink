@@ -12,10 +12,10 @@ from typing import Any
 import keyring.backends
 
 # Service name for keyring
-_SERVICE_NAME = "dbbridge"
+_SERVICE_NAME = "securedblink"
 
 # Index file to track aliases (no secrets, just metadata)
-INDEX_DIR = Path.home() / ".dbbridge"
+INDEX_DIR = Path.home() / ".securedblink"
 INDEX_FILE = INDEX_DIR / "aliases.json"
 
 
@@ -180,7 +180,7 @@ def verify_secure_backend() -> None:
 
         raise InsecureKeyringError(
             f"Insecure keyring backend detected: {backend_name}. "
-            f"dbbridge refuses to store credentials without a secure backend.\n\n"
+            f"securedblink refuses to store credentials without a secure backend.\n\n"
             f"{platform_help}\n\n"
             f"If you're in a headless environment without a credential manager, "
             f"consider using the environment variable-based connection method instead "
@@ -189,7 +189,7 @@ def verify_secure_backend() -> None:
 
 
 def _ensure_index_dir() -> None:
-    """Ensure the .dbbridge directory exists."""
+    """Ensure the .securedblink directory exists."""
     INDEX_DIR.mkdir(parents=True, exist_ok=True)
 
 

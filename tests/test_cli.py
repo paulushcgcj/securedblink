@@ -1,9 +1,9 @@
-"""Tests for the dbbridge command-line interface (dbbridge.server.cli_main)."""
+"""Tests for the securedblink command-line interface (securedblink.server.cli_main)."""
 
 from unittest.mock import Mock, patch
 
-from dbbridge.server import cli_main
-from dbbridge.vault.store import VaultStoreError
+from securedblink.server import cli_main
+from securedblink.vault.store import VaultStoreError
 
 
 class TestCliRegister:
@@ -11,7 +11,7 @@ class TestCliRegister:
 
     def test_register_success(self, capfd):
         mock_vault = Mock()
-        with patch("dbbridge.vault.store.get_vault_store", return_value=mock_vault):
+        with patch("securedblink.vault.store.get_vault_store", return_value=mock_vault):
             rc = cli_main(
                 [
                     "register",
@@ -35,7 +35,7 @@ class TestCliRegister:
 
     def test_register_full_credentials(self, capfd):
         mock_vault = Mock()
-        with patch("dbbridge.vault.store.get_vault_store", return_value=mock_vault):
+        with patch("securedblink.vault.store.get_vault_store", return_value=mock_vault):
             rc = cli_main(
                 [
                     "register",
@@ -68,7 +68,7 @@ class TestCliRegister:
         mock_vault.set.side_effect = VaultStoreError(
             "Alias 'prod' already exists. Use overwrite=True to replace."
         )
-        with patch("dbbridge.vault.store.get_vault_store", return_value=mock_vault):
+        with patch("securedblink.vault.store.get_vault_store", return_value=mock_vault):
             rc = cli_main(
                 [
                     "register",
@@ -89,10 +89,10 @@ class TestCliRegisterFromPath:
     def test_register_from_path_success(self, tmp_path, monkeypatch, capfd):
         env_file = tmp_path / "conn.env"
         env_file.write_text("DB_URL=postgresql://user:secret@localhost/db\n")
-        monkeypatch.setenv("DBBRIDGE_ALLOWED_ROOTS", str(tmp_path))
+        monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(tmp_path))
 
         mock_vault = Mock()
-        with patch("dbbridge.vault.store.get_vault_store", return_value=mock_vault):
+        with patch("securedblink.vault.store.get_vault_store", return_value=mock_vault):
             rc = cli_main(
                 ["register-from-path", "--alias", "prod", "--file-path", str(env_file)]
             )
@@ -110,7 +110,7 @@ class TestCliRegisterFromPath:
         allowed_dir.mkdir()
         outside_file = tmp_path / "conn.env"
         outside_file.write_text("DB_URL=sqlite:///./db.sqlite\n")
-        monkeypatch.setenv("DBBRIDGE_ALLOWED_ROOTS", str(allowed_dir))
+        monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(allowed_dir))
 
         rc = cli_main(
             ["register-from-path", "--alias", "prod", "--file-path", str(outside_file)]
@@ -122,14 +122,14 @@ class TestCliRegisterFromPath:
     def test_register_from_path_no_roots(self, tmp_path, monkeypatch, capfd):
         env_file = tmp_path / "conn.env"
         env_file.write_text("DB_URL=sqlite:///./db.sqlite\n")
-        monkeypatch.delenv("DBBRIDGE_ALLOWED_ROOTS", raising=False)
+        monkeypatch.delenv("SECUREDBLINK_ALLOWED_ROOTS", raising=False)
 
         rc = cli_main(
             ["register-from-path", "--alias", "prod", "--file-path", str(env_file)]
         )
         assert rc == 1
         err = capfd.readouterr().err
-        assert "DBBRIDGE_ALLOWED_ROOTS" in err
+        assert "SECUREDBLINK_ALLOWED_ROOTS" in err
 
 
 class TestCliList:
@@ -138,7 +138,7 @@ class TestCliList:
     def test_list_empty(self, capfd):
         mock_vault = Mock()
         mock_vault.list_aliases.return_value = []
-        with patch("dbbridge.vault.store.get_vault_store", return_value=mock_vault):
+        with patch("securedblink.vault.store.get_vault_store", return_value=mock_vault):
             rc = cli_main(["list"])
         assert rc == 0
         assert "No vault aliases registered" in capfd.readouterr().err
@@ -150,7 +150,7 @@ class TestCliList:
             "source": "direct",
             "created_at": "2024-01-01T00:00:00+00:00",
         }
-        with patch("dbbridge.vault.store.get_vault_store", return_value=mock_vault):
+        with patch("securedblink.vault.store.get_vault_store", return_value=mock_vault):
             rc = cli_main(["list"])
         assert rc == 0
         err = capfd.readouterr().err

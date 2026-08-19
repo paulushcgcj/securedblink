@@ -1,4 +1,4 @@
-"""Shared fixtures for dbbridge tests."""
+"""Shared fixtures for securedblink tests."""
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -65,7 +65,7 @@ def sample_db_env(monkeypatch):
 @pytest.fixture
 def clean_tokens():
     """Clear the server module's _tokens dict before each test."""
-    import dbbridge.server as srv
+    import securedblink.server as srv
 
     srv._tokens.clear()
     yield srv._tokens

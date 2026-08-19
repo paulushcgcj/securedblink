@@ -1,4 +1,4 @@
-"""Tests for dbbridge.server module."""
+"""Tests for securedblink.server module."""
 
 import os
 import time
@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from sqlalchemy import create_engine, text
 
-import dbbridge.server as srv
-from dbbridge.connections import ConnectionManager
+import securedblink.server as srv
+from securedblink.connections import ConnectionManager
 
 # ---------------------------------------------------------------------------
 # Helpers

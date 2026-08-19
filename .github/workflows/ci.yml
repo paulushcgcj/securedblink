@@ -31,7 +31,7 @@ jobs:
         run: uv run ruff format --check .
 
       - name: Mypy
-        run: uv run mypy dbbridge/
+        run: uv run mypy securedblink/
 
   test:
     name: Test (Python ${{ matrix.python-version }})

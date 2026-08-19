@@ -64,7 +64,7 @@ uv tool install git-cliff
 2. Add a **Trusted Publisher** with:
    - Publisher: GitHub Actions
    - Owner: `paulushcgcj`
-   - Repository: `dbbridge`
+   - Repository: `securedblink`
    - Workflow filename: `release.yml`
    - Environment name: `pypi`
 3. In GitHub, create an Actions **Environment** named `pypi` under
@@ -154,14 +154,14 @@ no tokens required.
 Monitor progress at **Actions → Publish to PyPI**.
 
 Once complete, the new version will be live at:
-`https://pypi.org/project/dbbridge/`
+`https://pypi.org/project/securedblink/`
 
 Users can install it immediately:
 
 ```bash
-pip install dbbridge
+pip install securedblink
 # or
-uv tool install dbbridge
+uv tool install securedblink
 ```
 
 ---
@@ -213,7 +213,7 @@ On PyPI the version will appear as `2.0.0rc1` and will only be installed if
 the user explicitly requests it:
 
 ```bash
-pip install "dbbridge==2.0.0rc1"
+pip install "securedblink==2.0.0rc1"
 # or
-pip install --pre dbbridge
+pip install --pre securedblink
 ```
