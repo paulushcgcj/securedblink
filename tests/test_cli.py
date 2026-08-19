@@ -9,7 +9,7 @@ from db_mcp.vault.store import VaultStoreError
 class TestCliRegister:
     """Tests for the ``register`` subcommand."""
 
-    def test_register_success(self, capsys):
+    def test_register_success(self, capfd):
         mock_vault = Mock()
         with patch("db_mcp.vault.store.get_vault_store", return_value=mock_vault):
             rc = cli_main(
@@ -31,9 +31,9 @@ class TestCliRegister:
             source="direct",
             overwrite=False,
         )
-        assert "registered" in capsys.readouterr().out
+        assert "registered" in capfd.readouterr().err
 
-    def test_register_full_credentials(self, capsys):
+    def test_register_full_credentials(self, capfd):
         mock_vault = Mock()
         with patch("db_mcp.vault.store.get_vault_store", return_value=mock_vault):
             rc = cli_main(
@@ -63,7 +63,7 @@ class TestCliRegister:
             overwrite=True,
         )
 
-    def test_register_duplicate_returns_error(self, capsys):
+    def test_register_duplicate_returns_error(self, capfd):
         mock_vault = Mock()
         mock_vault.set.side_effect = VaultStoreError(
             "Alias 'prod' already exists. Use overwrite=True to replace."
@@ -79,14 +79,14 @@ class TestCliRegister:
                 ]
             )
         assert rc == 1
-        err = capsys.readouterr().err
+        err = capfd.readouterr().err
         assert "already exists" in err
 
 
 class TestCliRegisterFromPath:
     """Tests for the ``register-from-path`` subcommand."""
 
-    def test_register_from_path_success(self, tmp_path, monkeypatch, capsys):
+    def test_register_from_path_success(self, tmp_path, monkeypatch, capfd):
         env_file = tmp_path / "conn.env"
         env_file.write_text("DB_URL=postgresql://user:secret@localhost/db\n")
         monkeypatch.setenv("DB_MCP_ALLOWED_ROOTS", str(tmp_path))
@@ -103,9 +103,9 @@ class TestCliRegisterFromPath:
         assert kwargs["source"] == "path"
         assert kwargs["jdbc_url"] == "postgresql://user:secret@localhost/db"
         assert kwargs["username"] is None
-        assert "registered" in capsys.readouterr().out
+        assert "registered" in capfd.readouterr().err
 
-    def test_register_from_path_outside_root(self, tmp_path, monkeypatch, capsys):
+    def test_register_from_path_outside_root(self, tmp_path, monkeypatch, capfd):
         allowed_dir = tmp_path / "allowed"
         allowed_dir.mkdir()
         outside_file = tmp_path / "conn.env"
@@ -116,10 +116,10 @@ class TestCliRegisterFromPath:
             ["register-from-path", "--alias", "prod", "--file-path", str(outside_file)]
         )
         assert rc == 1
-        err = capsys.readouterr().err
+        err = capfd.readouterr().err
         assert "not within an allow-listed root" in err
 
-    def test_register_from_path_no_roots(self, tmp_path, monkeypatch, capsys):
+    def test_register_from_path_no_roots(self, tmp_path, monkeypatch, capfd):
         env_file = tmp_path / "conn.env"
         env_file.write_text("DB_URL=sqlite:///./db.sqlite\n")
         monkeypatch.delenv("DB_MCP_ALLOWED_ROOTS", raising=False)
@@ -128,22 +128,22 @@ class TestCliRegisterFromPath:
             ["register-from-path", "--alias", "prod", "--file-path", str(env_file)]
         )
         assert rc == 1
-        err = capsys.readouterr().err
+        err = capfd.readouterr().err
         assert "DB_MCP_ALLOWED_ROOTS" in err
 
 
 class TestCliList:
     """Tests for the ``list`` subcommand."""
 
-    def test_list_empty(self, capsys):
+    def test_list_empty(self, capfd):
         mock_vault = Mock()
         mock_vault.list_aliases.return_value = []
         with patch("db_mcp.vault.store.get_vault_store", return_value=mock_vault):
             rc = cli_main(["list"])
         assert rc == 0
-        assert "No vault aliases registered" in capsys.readouterr().out
+        assert "No vault aliases registered" in capfd.readouterr().err
 
-    def test_list_sorted_aliases(self, capsys):
+    def test_list_sorted_aliases(self, capfd):
         mock_vault = Mock()
         mock_vault.list_aliases.return_value = ["beta", "alpha"]
         mock_vault.get_metadata.side_effect = lambda alias: {
@@ -153,6 +153,6 @@ class TestCliList:
         with patch("db_mcp.vault.store.get_vault_store", return_value=mock_vault):
             rc = cli_main(["list"])
         assert rc == 0
-        out = capsys.readouterr().out
-        assert out.index("- alpha") < out.index("- beta")
-        assert "source: direct" in out
+        err = capfd.readouterr().err
+        assert err.index("- alpha") < err.index("- beta")
+        assert "source: direct" in err

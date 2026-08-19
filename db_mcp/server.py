@@ -24,6 +24,7 @@ from sqlalchemy import text
 
 from db_mcp.classifier import classify
 from db_mcp.connections import ConnectionManager
+from db_mcp.log import get_logger
 from db_mcp.vault import (
     get_resolver,
     get_vault_store,
@@ -62,6 +63,8 @@ You have access to one or more databases via db-mcp.
 """,
 )
 
+log = get_logger("db_mcp.server")
+
 _db = ConnectionManager()
 _MAX_ROWS = int(os.getenv("DB_MAX_ROWS", "500"))
 _vault = get_vault_store()
@@ -70,9 +73,13 @@ _resolver = get_resolver()
 # Verify secure keyring backend on startup (only when vault is used)
 try:
     verify_secure_backend()
-except InsecureKeyringError:
+except InsecureKeyringError as exc:
     # Don't fail startup - vault tools will fail when called
-    pass
+    log.warning(
+        "vault_unavailable",
+        reason="no secure keyring backend detected",
+        detail=str(exc),
+    )
 
 
 class _PendingToken(NamedTuple):
@@ -156,6 +163,9 @@ def vault_register_connection(
         )
         return {"alias": alias, "status": "registered"}
     except (VaultStoreError, InsecureKeyringError, ValueError, OSError) as e:
+        # Log only the error class + alias — never str(e), which may embed
+        # credentials from the JDBC URL.
+        log.warning("vault_register_failed", alias=alias, error=type(e).__name__)
         return {
             "error": str(e),
             "alias": alias,
@@ -224,6 +234,7 @@ def vault_register_from_path(
         return {"alias": alias, "status": "registered"}
     except ValueError as e:
         # Path validation errors are expected and should be returned
+        log.warning("vault_register_from_path_failed", alias=alias, error="path")
         return {
             "error": str(e),
             "alias": alias,
@@ -232,6 +243,11 @@ def vault_register_from_path(
     except (VaultStoreError, InsecureKeyringError, OSError) as e:
         # For other errors, redact any potential credentials
         safe_error = redact_exception(e) if isinstance(e, Exception) else str(e)
+        log.warning(
+            "vault_register_from_path_failed",
+            alias=alias,
+            error=type(e).__name__,
+        )
         return {
             "error": safe_error,
             "alias": alias,
@@ -509,9 +525,11 @@ def cli_main(argv: list[str] | None = None) -> int:
     Returns the process exit code. With no subcommand, starts the MCP
     server (blocking); the CLI subcommands ``register``,
     ``register-from-path`` and ``list`` manage the credential vault.
+
+    All output goes to **stderr** via structlog; stdout is reserved for
+    the MCP stdio protocol.
     """
     import argparse
-    import sys
 
     parser = argparse.ArgumentParser(
         prog="db-mcp", description="MCP server for multi-database access"
@@ -579,7 +597,7 @@ def cli_main(argv: list[str] | None = None) -> int:
                 source="direct",
                 overwrite=args.overwrite,
             )
-            print(f"Alias {args.alias!r} registered in vault.")
+            log.info(f"Alias {args.alias!r} registered in vault.")
         elif args.command == "register-from-path":
             from db_mcp.vault.parsers import parse_config_file
             from db_mcp.vault.pathguard import validate_and_get_absolute_path
@@ -588,10 +606,9 @@ def cli_main(argv: list[str] | None = None) -> int:
             config = parse_config_file(absolute_path)
 
             if not config.is_valid():
-                print(
+                log.error(
                     f"Error: could not extract a valid connection URL "
-                    f"from {args.file_path}",
-                    file=sys.stderr,
+                    f"from {args.file_path}"
                 )
                 return 1
 
@@ -605,21 +622,21 @@ def cli_main(argv: list[str] | None = None) -> int:
                 source="path",
                 overwrite=args.overwrite,
             )
-            print(f"Alias {args.alias!r} registered in vault from {args.file_path}.")
+            log.info(f"Alias {args.alias!r} registered in vault from {args.file_path}.")
         elif args.command == "list":
             vault = get_vault_store()
             aliases = vault.list_aliases()
             if not aliases:
-                print("No vault aliases registered.")
+                log.info("No vault aliases registered.")
             else:
                 for a in sorted(aliases):
                     meta = vault.get_metadata(a) or {}
-                    print(
+                    log.info(
                         f"- {a} (source: {meta.get('source', 'unknown')}, "
                         f"created: {meta.get('created_at', 'unknown')})"
                     )
     except (VaultStoreError, ValueError, FileNotFoundError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        log.error(f"Error: {exc}")
         return 1
     return 0
 

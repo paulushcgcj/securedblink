@@ -1,6 +1,34 @@
 # db-mcp
 
+[![PyPI version](https://img.shields.io/pypi/v/db-mcp.svg)](https://pypi.org/project/db-mcp/)
+[![Python versions](https://img.shields.io/pypi/pyversions/db-mcp.svg)](https://pypi.org/project/db-mcp/)
+[![CI](https://github.com/paulushcgcj/db-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/paulushcgcj/db-mcp/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/paulushcgcj/db-mcp.svg)](LICENSE)
+
 MCP server that gives LLM agents read access to any database, with built-in gates for writes.
+
+## Installation
+
+**Mac / Linux**
+```bash
+curl -fsSL https://raw.githubusercontent.com/paulushcgcj/db-mcp/main/install.sh | bash
+```
+
+**Windows (PowerShell)**
+
+```powershell
+irm https://raw.githubusercontent.com/paulushcgcj/db-mcp/main/install.ps1 | iex
+```
+
+**Via pip / uv (all platforms)**
+
+```bash
+pip install db-mcp
+# or
+uv tool install db-mcp
+```
+
+> **macOS note:** If you see a security warning on first run, clear the quarantine flag once: `xattr -d com.apple.quarantine /usr/local/bin/db-mcp`
 
 ## Why db-mcp
 
