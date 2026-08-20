@@ -1,11 +1,9 @@
 """Tests for the securedblink update module."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
 import pytest
-
-from urllib.error import URLError
 
 from securedblink.update import (
     UpdateStatus,
@@ -16,8 +14,8 @@ from securedblink.update import (
     cache_path,
     check_for_update,
     fetch_latest_version,
-    installed_version,
     installation_guidance,
+    installed_version,
 )
 
 
@@ -89,7 +87,7 @@ class TestFetchLatestVersion:
         mock_response.__enter__ = Mock(return_value=mock_response)
         mock_response.__exit__ = Mock(return_value=False)
         mock_response.read = Mock(return_value=str(mock_payload).encode())
-        
+
         with patch("securedblink.update.urlopen", return_value=mock_response):
             with patch("securedblink.update.json.load", return_value=mock_payload):
                 assert fetch_latest_version() == "2.0.0"
@@ -256,7 +254,7 @@ class TestInstallationGuidance:
 
     def test_returns_guidance(self):
         import securedblink.update as update_module
-        
+
         with patch.object(
             update_module,
             "sys",
