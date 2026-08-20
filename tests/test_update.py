@@ -1,6 +1,6 @@
 """Tests for the securedblink update module."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
 import pytest
@@ -14,8 +14,8 @@ from securedblink.update import (
     cache_path,
     check_for_update,
     fetch_latest_version,
-    installed_version,
     installation_guidance,
+    installed_version,
 )
 
 
@@ -33,6 +33,8 @@ class TestVersionKey:
 
     def test_invalid_version(self):
         assert _version_key("invalid") is None
+        # Note: "1.0" actually matches the regex and returns (1, 0, 0)
+        # since it has at least one dot-separated number
         assert _version_key("abc") is None
 
 
@@ -169,17 +171,22 @@ class TestCheckForUpdate:
     """Tests for check_for_update function."""
 
     def test_update_available(self):
-        with patch(
-            "securedblink.update.installed_version",
-            return_value="1.0.0",
-        ), patch(
-            "securedblink.update.fetch_latest_version",
-            return_value="2.0.0",
-        ), patch(
-            "securedblink.update._read_cache",
-            return_value=None,
-        ), patch(
-            "securedblink.update._write_cache",
+        with (
+            patch(
+                "securedblink.update.installed_version",
+                return_value="1.0.0",
+            ),
+            patch(
+                "securedblink.update.fetch_latest_version",
+                return_value="2.0.0",
+            ),
+            patch(
+                "securedblink.update._read_cache",
+                return_value=None,
+            ),
+            patch(
+                "securedblink.update._write_cache",
+            ),
         ):
             with patch.dict("os.environ", {}, clear=True):
                 status = check_for_update()
@@ -188,17 +195,22 @@ class TestCheckForUpdate:
                 assert status.update_available is True
 
     def test_up_to_date(self):
-        with patch(
-            "securedblink.update.installed_version",
-            return_value="2.0.0",
-        ), patch(
-            "securedblink.update.fetch_latest_version",
-            return_value="2.0.0",
-        ), patch(
-            "securedblink.update._read_cache",
-            return_value=None,
-        ), patch(
-            "securedblink.update._write_cache",
+        with (
+            patch(
+                "securedblink.update.installed_version",
+                return_value="2.0.0",
+            ),
+            patch(
+                "securedblink.update.fetch_latest_version",
+                return_value="2.0.0",
+            ),
+            patch(
+                "securedblink.update._read_cache",
+                return_value=None,
+            ),
+            patch(
+                "securedblink.update._write_cache",
+            ),
         ):
             with patch.dict("os.environ", {}, clear=True):
                 status = check_for_update()
@@ -217,15 +229,19 @@ class TestCheckForUpdate:
             update_available=True,
             checked_at=datetime.now(UTC).isoformat(),
         )
-        with patch(
-            "securedblink.update.cache_path",
-            return_value=cache_file,
-        ), patch(
-            "securedblink.update.installed_version",
-            return_value="1.0.0",
-        ), patch(
-            "securedblink.update._read_cache",
-            return_value=cached_status,
+        with (
+            patch(
+                "securedblink.update.cache_path",
+                return_value=cache_file,
+            ),
+            patch(
+                "securedblink.update.installed_version",
+                return_value="1.0.0",
+            ),
+            patch(
+                "securedblink.update._read_cache",
+                return_value=cached_status,
+            ),
         ):
             with patch.dict("os.environ", {}, clear=True):
                 with patch("securedblink.update.fetch_latest_version") as mock_fetch:
@@ -246,7 +262,9 @@ class TestUpdateStatus:
         status = UpdateStatus("1.0.0", "2.0.0", True)
         # Frozen dataclass with slots prevents adding new attributes
         # This test verifies the slots behavior
-        assert hasattr(status, "__slots__") or True  # Slots may not be directly accessible
+        assert (
+            hasattr(status, "__slots__") or True
+        )  # Slots may not be directly accessible
 
 
 class TestInstallationGuidance:

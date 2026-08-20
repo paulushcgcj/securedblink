@@ -1466,7 +1466,7 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "keyring", specifier = ">=24.0" },
-    { name = "mcp", extras = ["cli"], specifier = ">=1.0" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.0,<2.0.0" },
     { name = "oracledb", marker = "extra == 'oracle'", specifier = ">=2.0" },
     { name = "psycopg2-binary", specifier = ">=2.9" },
     { name = "pymysql", marker = "extra == 'mysql'", specifier = ">=1.1" },

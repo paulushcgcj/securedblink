@@ -224,18 +224,21 @@ class TestCliUpdate:
     def test_update_apply_success(self, capfd):
         mock_result = Mock()
         mock_result.stdout = "Updated successfully"
-        with patch(
-            "securedblink.update.check_for_update",
-            return_value=Mock(
-                installed_version="1.0.0",
-                latest_version="2.0.0",
-                update_available=True,
-                skipped=False,
-                error=None,
+        with (
+            patch(
+                "securedblink.update.check_for_update",
+                return_value=Mock(
+                    installed_version="1.0.0",
+                    latest_version="2.0.0",
+                    update_available=True,
+                    skipped=False,
+                    error=None,
+                ),
             ),
-        ), patch(
-            "securedblink.update.apply_uv_upgrade",
-            return_value=mock_result,
+            patch(
+                "securedblink.update.apply_uv_upgrade",
+                return_value=mock_result,
+            ),
         ):
             rc = cli_main(["update", "--apply"])
         assert rc == 0

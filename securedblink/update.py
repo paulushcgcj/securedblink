@@ -50,7 +50,9 @@ def _version_key(value: str) -> tuple[int, ...] | None:
     match = re.fullmatch(r"v?(\d+)(?:\.(\d+))+(?:\.post(\d+))?", value)
     if match is None:
         return None
-    numbers = tuple(int(part) for part in value.removeprefix("v").split(".") if part.isdigit())
+    numbers = tuple(
+        int(part) for part in value.removeprefix("v").split(".") if part.isdigit()
+    )
     post_match = re.search(r"\.post(\d+)$", value)
     return numbers + ((int(post_match.group(1)),) if post_match else (0,))
 
