@@ -542,6 +542,7 @@ def cli_main(argv: list[str] | None = None) -> int:
     the MCP stdio protocol.
     """
     import argparse
+
     from securedblink.update import installed_version
 
     parser = argparse.ArgumentParser(
