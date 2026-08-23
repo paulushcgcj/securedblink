@@ -1,6 +1,6 @@
-<p align="center">
-  <img src="./assets/readme/hero.svg" width="100%" alt="securedblink — MCP database gateway. Read freely, preview writes, approve explicitly."/>
-</p>
+<div align="center" style="overflow:hidden; border-radius:26px; line-height:0">
+  <img src="./assets/readme/hero.svg" width="100%" alt="securedblink — MCP database gateway. Read freely, preview writes, approve explicitly." style="display:block; border-radius:26px" />
+</div>
 
 <p align="center">
   <a href="https://pypi.org/project/securedblink/"><img src="https://img.shields.io/pypi/v/securedblink.svg" alt="PyPI version"/></a>
@@ -45,9 +45,9 @@ Stack: **Python 3.12+**, **SQLAlchemy 2.0**, **MCP 1.x**, **structlog**, **keyri
 
 ## How it works
 
-<p align="center">
-  <img src="./assets/readme/workflow.svg" width="100%" alt="How securedblink gates writes: reads run immediately, writes require preview, bound token, explicit human approval, and validated execution. Vault credentials stay on-host."/>
-</p>
+<div align="center" style="overflow:hidden; border-radius:22px; line-height:0">
+  <img src="./assets/readme/workflow.svg" width="100%" alt="How securedblink gates writes: reads run immediately, writes require preview, bound token, explicit human approval, and validated execution. Vault credentials stay on-host." style="display:block; border-radius:22px" />
+</div>
 
 **Read lane — free.** `query` executes immediately and returns rows capped by `DB_MAX_ROWS` (default 500).
 
