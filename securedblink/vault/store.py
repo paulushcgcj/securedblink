@@ -109,6 +109,22 @@ def _is_credentials_manager_available() -> bool:
 
         # On Linux, check for SecretService
         if system == "linux":
+            backend_module = type(backend).__module__
+            backend_name = type(backend).__name__
+
+            # keyring 25 exposes the libsecret backend as
+            # keyring.backends.SecretService.Keyring. Older versions expose
+            # it through keyring.backends.secretstorage.
+            if (
+                backend_module
+                in {
+                    "keyring.backends.SecretService",
+                    "keyring.backends.secretstorage",
+                }
+                and backend_name == "Keyring"
+            ):
+                return True
+
             try:
                 from keyring.backends import Linux  # type: ignore[attr-defined]
 
