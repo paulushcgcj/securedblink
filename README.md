@@ -9,6 +9,9 @@ MCP server that gives LLM agents read access to any database, with built-in gate
 
 ## Installation
 
+Install the `securedblink` command for normal use. It is the recommended
+entry point for MCP clients and starts the server directly.
+
 **Mac / Linux**
 ```bash
 curl -fsSL https://raw.githubusercontent.com/paulushcgcj/securedblink/main/install.sh | bash
@@ -26,7 +29,18 @@ irm https://raw.githubusercontent.com/paulushcgcj/securedblink/main/install.ps1 
 pip install securedblink
 # or
 uv tool install securedblink
+# With the Oracle driver included:
+uv tool install 'securedblink[oracle]'
 ```
+
+PostgreSQL support is included by default. Oracle, MySQL, and SQL Server are
+available through the `oracle`, `mysql`, and `mssql` extras respectively. Use
+the `uv tool install` form with an extra when those drivers must be available
+to the installed command.
+
+The Mac/Linux and Windows installer scripts download standalone release
+binaries. Those binaries include the default PostgreSQL support; use the
+PyPI/`uv tool` installation when you need an optional driver such as Oracle.
 
 > **macOS note:** If you see a security warning on first run, clear the quarantine flag once: `xattr -d com.apple.quarantine /usr/local/bin/securedblink`
 
@@ -59,15 +73,22 @@ Any other database works too. Install the right SQLAlchemy driver and use its UR
 ## Quick start
 
 ```bash
-# Clone the repo
-git clone git@github.com:paulushcgcj/securedblink.git
-cd securedblink
-
-# Run with a local SQLite database
-DB_LOCAL=sqlite:///./test.db ./run.sh
+# Start the installed binary with a local SQLite database
+DB_LOCAL=sqlite:///./test.db securedblink
 ```
 
 The server starts and your LLM tool can list tables, describe schemas, and run read queries against `local`.
+
+### Running from a source checkout
+
+For development, or when you want automatic driver installation based on
+`DB_*` URLs, use the repository launcher:
+
+```bash
+git clone git@github.com:paulushcgcj/securedblink.git
+cd securedblink
+DB_LOCAL=sqlite:///./test.db ./run.sh
+```
 
 ## Configure your connections
 
@@ -79,21 +100,28 @@ DB_LOCAL=sqlite:///./dev.db
 DB_MAX_ROWS=1000   # optional, default 500
 ```
 
-Put these in a `.env` file if you run the server manually.
+Export these variables in the environment used to launch `securedblink`, or
+configure them in your MCP client's environment settings. The installed binary
+does not load `.env` files automatically; `run.sh` loads `.env` for manual
+source-checkout runs.
 
 ## Run the server
 
-`run.sh` is the recommended launcher. It syncs dependencies, detects which database drivers your `DB_*` env vars need, installs them if missing, and hands off to the MCP server.
+The installed `securedblink` binary is the recommended launcher for normal
+terminal use and MCP integrations:
 
 ```bash
-# Run manually
-DB_LOCAL=sqlite:///./test.db ./run.sh
+# Run the installed binary
+DB_LOCAL=sqlite:///./test.db securedblink
 
-# Or with a .env file
-./run.sh
+# Or use environment variables supplied by your shell or process manager
+securedblink
 ```
 
-When your IDE launches securedblink, point it at `run.sh` instead of calling `uv run securedblink` directly. The script handles driver installation so you don't have to `pip install` extras like `[oracle]` or `[mysql]` by hand.
+For a source checkout, `run.sh` remains available as a convenience launcher.
+It syncs dependencies, detects drivers required by `DB_*` URLs, and installs
+missing drivers before starting the server. Installed binaries do not modify
+their own environment, so install optional drivers with package extras first.
 
 ## Connect your IDE
 
@@ -107,7 +135,7 @@ Add to `.vscode/mcp.json` (workspace) or `~/.vscode/mcp.json` (global):
   "servers": {
     "securedblink": {
       "type": "stdio",
-      "command": "/absolute/path/to/securedblink/run.sh",
+      "command": "securedblink",
       "env": {
         "DB_PROD": "postgresql://user:pass@host:5432/mydb",
         "DB_LOCAL": "sqlite:///./local.db",
@@ -130,7 +158,7 @@ Add to `~/.config/opencode/opencode.jsonc` or `.opencode.json` in your project:
   "mcp": {
     "securedblink": {
       "type": "local",
-      "command": ["/absolute/path/to/securedblink/run.sh"],
+      "command": ["securedblink"],
       "environment": {
         "DB_PROD": "postgresql://user:pass@host:5432/mydb",
         "DB_LOCAL": "sqlite:///./local.db",
@@ -142,6 +170,10 @@ Add to `~/.config/opencode/opencode.jsonc` or `.opencode.json` in your project:
 ```
 
 </details>
+
+If the binary is not on your MCP client's `PATH`, use its absolute path (for
+example, `/usr/local/bin/securedblink`). For a source checkout, replace the
+command with `/absolute/path/to/securedblink/run.sh`.
 
 ## Tools
 
@@ -179,12 +211,22 @@ The token binds the connection name and the exact SQL to the approval. If the ag
 
 ## Custom drivers
 
-`run.sh` detects the URL scheme and installs the driver for you. For example, setting `DB_SNOW=snowflake://...` causes the script to install `snowflake-sqlalchemy` on first launch.
+For source checkouts, `run.sh` detects the URL scheme and installs the driver
+for you. For example, setting `DB_SNOW=snowflake://...` causes the script to
+install `snowflake-sqlalchemy` on first launch.
 
 If you prefer to install manually:
 
 ```bash
 uv pip install snowflake-sqlalchemy
+```
+
+For a published package, install optional drivers with the binary:
+
+```bash
+uv tool install 'securedblink[oracle]'
+uv tool install 'securedblink[mysql]'
+uv tool install 'securedblink[mssql]'
 ```
 
 The SQLAlchemy dialect registry resolves the driver from the URL prefix.
