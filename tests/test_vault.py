@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -415,6 +416,89 @@ class TestParsers:
         with pytest.raises(ImportError, match="PyYAML is required"):
             parsers._parse_yaml_file(str(tmp_path / "config.yml"))
 
+    def test_yaml_nested_fallbacks(self, monkeypatch, tmp_path):
+        import securedblink.vault.parsers as parsers
+
+        config_file = tmp_path / "config.yml"
+        config_file.write_text("ignored")
+        monkeypatch.setattr(parsers, "_HAS_YAML", True)
+        monkeypatch.setattr(
+            parsers,
+            "yaml",
+            SimpleNamespace(
+                safe_load=lambda _: {
+                    "spring": {
+                        "datasource": {"user": "spring-user", "passwd": "spring-pass"}
+                    },
+                    "database": {
+                        "jdbc_url": "sqlite:///db",
+                        "user": "db-user",
+                        "passwd": "db-pass",
+                        "driver": "sqlite",
+                    },
+                }
+            ),
+            raising=False,
+        )
+        config = parsers._parse_yaml_file(str(config_file))
+        assert config.to_dict() == {
+            "jdbc_url": "sqlite:///db",
+            "username": "spring-user",
+            "password": "spring-pass",
+            "driver": "sqlite",
+        }
+
+    def test_yaml_direct_fallbacks(self, monkeypatch, tmp_path):
+        import securedblink.vault.parsers as parsers
+
+        config_file = tmp_path / "config.yml"
+        config_file.write_text("ignored")
+        monkeypatch.setattr(parsers, "_HAS_YAML", True)
+        monkeypatch.setattr(
+            parsers,
+            "yaml",
+            SimpleNamespace(
+                safe_load=lambda _: {
+                    "database_url": "sqlite:///db",
+                    "user": "admin",
+                    "passwd": "secret",
+                    "driver": "sqlite",
+                }
+            ),
+            raising=False,
+        )
+        config = parsers._parse_yaml_file(str(config_file))
+        assert config.to_dict() == {
+            "jdbc_url": "sqlite:///db",
+            "username": "admin",
+            "password": "secret",
+            "driver": "sqlite",
+        }
+
+    def test_yaml_non_mapping_nested_values_are_ignored(self, monkeypatch, tmp_path):
+        import securedblink.vault.parsers as parsers
+
+        config_file = tmp_path / "config.yml"
+        config_file.write_text("ignored")
+        monkeypatch.setattr(parsers, "_HAS_YAML", True)
+        monkeypatch.setattr(
+            parsers,
+            "yaml",
+            SimpleNamespace(safe_load=lambda _: {"spring": [], "database": []}),
+            raising=False,
+        )
+        assert not parsers._parse_yaml_file(str(config_file)).is_valid()
+
+    def test_parse_config_file_yaml_dispatch(self, monkeypatch, tmp_path):
+        import securedblink.vault.parsers as parsers
+
+        monkeypatch.setattr(
+            parsers, "_parse_yaml_file", lambda path: ConnectionConfig("url")
+        )
+        yaml_file = tmp_path / "config.yaml"
+        yaml_file.write_text("ignored")
+        assert parsers.parse_config_file(str(yaml_file)).jdbc_url == "url"
+
 
 # ---------------------------------------------------------------------------
 # YAML Parsers Tests (if available)
@@ -803,6 +887,15 @@ class TestVaultStore:
             store_module.keyring, "get_keyring", return_value=SecretService()
         ):
             assert store_module._is_backend_secure()
+
+        current_secret_service = type("Keyring", (), {})
+        current_secret_service.__module__ = "keyring.backends.SecretService"
+        with patch.object(
+            store_module.keyring,
+            "get_keyring",
+            return_value=current_secret_service(),
+        ):
+            assert store_module._is_credentials_manager_available()
 
     def test_store_backend_detection_handles_errors(self):
         import securedblink.vault.store as store_module

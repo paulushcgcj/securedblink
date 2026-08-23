@@ -244,6 +244,26 @@ class TestCliUpdate:
         assert rc == 0
         assert "Updated successfully" in capfd.readouterr().err
 
+    def test_update_apply_failure(self, capfd):
+        with (
+            patch(
+                "securedblink.update.check_for_update",
+                return_value=Mock(
+                    installed_version="1.0.0",
+                    latest_version="2.0.0",
+                    update_available=True,
+                    skipped=False,
+                    error=None,
+                ),
+            ),
+            patch(
+                "securedblink.update.apply_uv_upgrade",
+                side_effect=RuntimeError("upgrade failed"),
+            ),
+        ):
+            assert cli_main(["update", "--apply"]) == 1
+        assert "upgrade failed" in capfd.readouterr().err
+
     def test_update_error(self, capfd):
         with patch(
             "securedblink.update.check_for_update",

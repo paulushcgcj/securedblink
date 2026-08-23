@@ -100,6 +100,17 @@ class TestFetchLatestVersion:
             with pytest.raises(RuntimeError, match="Could not check PyPI"):
                 fetch_latest_version()
 
+    def test_invalid_metadata(self):
+        response = Mock()
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+        with (
+            patch("securedblink.update.urlopen", return_value=response),
+            patch("securedblink.update.json.load", return_value={"releases": {}}),
+        ):
+            with pytest.raises(RuntimeError, match="no stable releases"):
+                fetch_latest_version()
+
 
 class TestCachePath:
     """Tests for cache_path function."""
@@ -165,6 +176,17 @@ class TestCacheReadWrite:
 
         result = _read_cache(cache_file, datetime.now(UTC), "2.0.0")
         assert result is None
+
+    @pytest.mark.parametrize("contents", ["not-json", "{}", "[]"])
+    def test_invalid_cache_ignored(self, tmp_path, contents):
+        cache_file = tmp_path / "update.json"
+        cache_file.write_text(contents)
+        assert _read_cache(cache_file, datetime.now(UTC), "1.0.0") is None
+
+    def test_missing_cache_ignored(self, tmp_path):
+        assert (
+            _read_cache(tmp_path / "missing.json", datetime.now(UTC), "1.0.0") is None
+        )
 
 
 class TestCheckForUpdate:
@@ -248,6 +270,57 @@ class TestCheckForUpdate:
                     status = check_for_update()
                     mock_fetch.assert_not_called()
                     assert status == cached_status
+
+    def test_offline_result_is_cached(self):
+        with (
+            patch("securedblink.update.installed_version", return_value="1.0.0"),
+            patch(
+                "securedblink.update.fetch_latest_version",
+                side_effect=RuntimeError("offline"),
+            ),
+            patch("securedblink.update._read_cache", return_value=None),
+            patch("securedblink.update._write_cache") as write_cache,
+        ):
+            with patch.dict("os.environ", {}, clear=True):
+                status = check_for_update()
+        assert status.error == "offline"
+        write_cache.assert_called_once()
+        assert write_cache.call_args.args[1] == status
+
+    def test_cache_write_error_does_not_fail(self, tmp_path):
+        with (
+            patch("securedblink.update.installed_version", return_value="1.0.0"),
+            patch("securedblink.update.fetch_latest_version", return_value="1.0.0"),
+            patch("securedblink.update._read_cache", return_value=None),
+            patch("securedblink.update._write_cache", side_effect=OSError("read-only")),
+        ):
+            with patch.dict("os.environ", {}, clear=True):
+                status = check_for_update()
+        assert status.update_available is False
+
+
+class TestApplyUpgrade:
+    """Tests for explicitly requested upgrades."""
+
+    def test_uv_missing(self):
+        from securedblink.update import apply_uv_upgrade
+
+        with patch("securedblink.update.shutil.which", return_value=None):
+            with pytest.raises(RuntimeError, match="not installed"):
+                apply_uv_upgrade()
+
+    def test_upgrade_failure(self):
+        from securedblink.update import apply_uv_upgrade
+
+        with (
+            patch("securedblink.update.shutil.which", return_value="/usr/bin/uv"),
+            patch(
+                "securedblink.update.subprocess.run",
+                side_effect=OSError("cannot execute"),
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="upgrade failed"):
+                apply_uv_upgrade()
 
 
 class TestUpdateStatus:
