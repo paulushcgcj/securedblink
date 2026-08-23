@@ -1,157 +1,97 @@
 # securedblink
 
+> An MCP database gateway for LLM agents: read freely, preview writes, approve explicitly.
+
 [![PyPI version](https://img.shields.io/pypi/v/securedblink.svg)](https://pypi.org/project/securedblink/)
 [![Python versions](https://img.shields.io/pypi/pyversions/securedblink.svg)](https://pypi.org/project/securedblink/)
 [![CI](https://github.com/paulushcgcj/securedblink/actions/workflows/ci.yml/badge.svg)](https://github.com/paulushcgcj/securedblink/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/paulushcgcj/securedblink.svg)](LICENSE)
 
-MCP server that gives LLM agents read access to any database, with built-in gates for writes.
+`securedblink` gives an LLM a controlled way to inspect and query databases
+through the Model Context Protocol (MCP). Read-only work runs immediately;
+mutating SQL must pass through a preview and an explicit approval before it can
+execute.
 
-## Installation
+```text
+                         read path
+  agent ──────────────── SELECT / EXPLAIN ──────────────── database
+    │
+    │ write path
+    └── INSERT / UPDATE / DELETE ── preview ── approval ── execute ── database
+                                      │
+                                      └── exact SQL + connection bound to token
+```
 
-Install the `securedblink` command for normal use. It is the recommended
-entry point for MCP clients and starts the server directly.
+## Start here
 
-**Mac / Linux**
+### 1. Install the command
+
+For normal use, install the `securedblink` command. It is the primary entry
+point for terminal use and MCP clients.
+
+**macOS / Linux** — install the latest standalone release binary:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/paulushcgcj/securedblink/main/install.sh | bash
 ```
 
-**Windows (PowerShell)**
+**Windows (PowerShell):**
 
 ```powershell
 irm https://raw.githubusercontent.com/paulushcgcj/securedblink/main/install.ps1 | iex
 ```
 
-**Via pip / uv (all platforms)**
+**PyPI / uv (all platforms):**
 
 ```bash
-pip install securedblink
-# or
 uv tool install securedblink
-# With the Oracle driver included:
+```
+
+PostgreSQL support is included by default. Install optional SQLAlchemy drivers
+with an extra when using the PyPI package:
+
+```bash
 uv tool install 'securedblink[oracle]'
+uv tool install 'securedblink[mysql]'
+uv tool install 'securedblink[mssql]'
 ```
 
-PostgreSQL support is included by default. Oracle, MySQL, and SQL Server are
-available through the `oracle`, `mysql`, and `mssql` extras respectively. Use
-the `uv tool install` form with an extra when those drivers must be available
-to the installed command.
+The release installers provide standalone binaries with the default
+PostgreSQL support. Use the PyPI/`uv tool` installation when you need optional
+drivers such as Oracle.
 
-The Mac/Linux and Windows installer scripts download standalone release
-binaries. Those binaries include the default PostgreSQL support; use the
-PyPI/`uv tool` installation when you need an optional driver such as Oracle.
+### 2. Connect a database
 
-> **macOS note:** If you see a security warning on first run, clear the quarantine flag once: `xattr -d com.apple.quarantine /usr/local/bin/securedblink`
-
-## Why securedblink
-
-LLMs handle read-only database work: schema exploration, query writing, data analysis. A stray `DELETE` or `DROP` from an agent can wipe production data. securedblink draws a hard line: reads go through, writes require the agent to show you exactly what it plans to do and wait for your explicit approval.
-
-## Features
-
-- **Read queries** run immediately: `SELECT`, `EXPLAIN`, `SHOW`, `DESCRIBE`, and `WITH` (when safe).
-- **Write and destructive queries** go through a two-step confirmation: the agent previews the change, you approve it.
-- **Token-bound execution.** Approval tokens encode the exact SQL and connection. Swap the query or target a different database, and the server rejects it.
-- **Named connections** via `DB_<NAME>=<url>` environment variables. No config files to manage.
-- **Credential vault** for secure storage. Register connections with aliases, and the MCP stores credentials in the system's secure credential manager. No credentials in env vars, logs, or tool responses.
-- **Any SQLAlchemy-compatible database:** PostgreSQL, SQLite, Oracle, MySQL, SQL Server, Snowflake, or whatever you install the driver for.
-
-## Supported databases
-
-| Database    | URL format                                        | Extra install          |
-|-------------|---------------------------------------------------|------------------------|
-| PostgreSQL  | `postgresql://user:pass@host:5432/db`             | included               |
-| SQLite      | `sqlite:///./path/to/file.db`                     | included (built-in)    |
-| Oracle      | `oracle+oracledb://user:pass@host:1521/service`   | `[oracle]`             |
-| MySQL       | `mysql+pymysql://user:pass@host:3306/db`          | `[mysql]`              |
-| SQL Server  | `mssql+pyodbc://user:pass@host/db?driver=...`     | `[mssql]`              |
-| Snowflake   | `snowflake://user:pass@account/db/schema`         | `snowflake-sqlalchemy` |
-
-Any other database works too. Install the right SQLAlchemy driver and use its URL format.
-
-## Quick start
+Set one or more `DB_<NAME>` environment variables. The suffix becomes the
+connection name used by MCP tools.
 
 ```bash
-# Start the installed binary with a local SQLite database
-DB_LOCAL=sqlite:///./test.db securedblink
+export DB_LOCAL=sqlite:///./local.db
+export DB_ANALYTICS=postgresql://user:password@db.example.com:5432/analytics
+export DB_MAX_ROWS=500  # optional; defaults to 500
 ```
 
-The server starts and your LLM tool can list tables, describe schemas, and run read queries against `local`.
-
-### Running from a source checkout
-
-For development, or when you want automatic driver installation based on
-`DB_*` URLs, use the repository launcher:
+### 3. Run it
 
 ```bash
-git clone git@github.com:paulushcgcj/securedblink.git
-cd securedblink
-DB_LOCAL=sqlite:///./test.db ./run.sh
-```
-
-## Configure your connections
-
-Set `DB_<NAME>=<url>` environment variables. The part after `DB_` (lowercased) is the name you reference in prompts.
-
-```bash
-DB_PROD=postgresql://user:pass@db.internal:5432/production
-DB_LOCAL=sqlite:///./dev.db
-DB_MAX_ROWS=1000   # optional, default 500
-```
-
-Export these variables in the environment used to launch `securedblink`, or
-configure them in your MCP client's environment settings. The installed binary
-does not load `.env` files automatically; `run.sh` loads `.env` for manual
-source-checkout runs.
-
-## Run the server
-
-The installed `securedblink` binary is the recommended launcher for normal
-terminal use and MCP integrations:
-
-```bash
-# Run the installed binary
-DB_LOCAL=sqlite:///./test.db securedblink
-
-# Or use environment variables supplied by your shell or process manager
 securedblink
 ```
 
-For a source checkout, `run.sh` remains available as a convenience launcher.
-It syncs dependencies, detects drivers required by `DB_*` URLs, and installs
-missing drivers before starting the server. Installed binaries do not modify
-their own environment, so install optional drivers with package extras first.
+With the example above, an MCP client can discover `local` and `analytics`,
+inspect their schemas, and run read queries. Credentials can instead be stored
+in the operating system credential manager through the vault.
 
-## Connect your IDE
+## Configure an MCP client
 
-<details>
-<summary><strong>VS Code Copilot</strong></summary>
-
-Add to `.vscode/mcp.json` (workspace) or `~/.vscode/mcp.json` (global):
-
-```json
-{
-  "servers": {
-    "securedblink": {
-      "type": "stdio",
-      "command": "securedblink",
-      "env": {
-        "DB_PROD": "postgresql://user:pass@host:5432/mydb",
-        "DB_LOCAL": "sqlite:///./local.db",
-        "DB_MAX_ROWS": "500"
-      }
-    }
-  }
-}
-```
-
-</details>
+The binary must be installed and available on the MCP client's `PATH`. If it
+is not, replace `securedblink` with its absolute path, such as
+`/usr/local/bin/securedblink`.
 
 <details>
 <summary><strong>OpenCode</strong></summary>
 
-Add to `~/.config/opencode/opencode.jsonc` or `.opencode.json` in your project:
+Add this to `~/.config/opencode/opencode.jsonc` or `.opencode.json` in a
+project:
 
 ```json
 {
@@ -160,7 +100,7 @@ Add to `~/.config/opencode/opencode.jsonc` or `.opencode.json` in your project:
       "type": "local",
       "command": ["securedblink"],
       "environment": {
-        "DB_PROD": "postgresql://user:pass@host:5432/mydb",
+        "DB_ANALYTICS": "postgresql://user:password@host:5432/analytics",
         "DB_LOCAL": "sqlite:///./local.db",
         "DB_MAX_ROWS": "500"
       }
@@ -171,185 +111,155 @@ Add to `~/.config/opencode/opencode.jsonc` or `.opencode.json` in your project:
 
 </details>
 
-If the binary is not on your MCP client's `PATH`, use its absolute path (for
-example, `/usr/local/bin/securedblink`). For a source checkout, replace the
-command with `/absolute/path/to/securedblink/run.sh`.
+<details>
+<summary><strong>VS Code Copilot</strong></summary>
+
+Add this to `.vscode/mcp.json` or `~/.vscode/mcp.json`:
+
+```json
+{
+  "servers": {
+    "securedblink": {
+      "type": "stdio",
+      "command": "securedblink",
+      "env": {
+        "DB_ANALYTICS": "postgresql://user:password@host:5432/analytics",
+        "DB_LOCAL": "sqlite:///./local.db",
+        "DB_MAX_ROWS": "500"
+      }
+    }
+  }
+}
+```
+
+</details>
+
+Keep connection values in your MCP client's environment configuration or use
+the credential vault. Do not commit real credentials to configuration files.
+
+## What it protects
+
+| Operation | Behavior |
+|---|---|
+| `SELECT`, `EXPLAIN`, `SHOW`, `DESCRIBE`, safe `WITH` | Runs immediately through `query` |
+| `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE`, and other writes | Requires `preview_mutation`, user approval, then `execute_mutation` |
+| Approval token | Binds the exact SQL and connection; expires after five minutes and is single-use |
+| Credentials | Vault values stay in the system credential manager and out of tool responses and logs |
+
+The write flow is deliberately visible:
+
+```text
+1. Agent calls preview_mutation(connection, sql)
+2. securedblink returns the planned operation and a one-time token
+3. Agent shows the preview and asks for explicit confirmation
+4. Agent calls execute_mutation(connection, sql, token)
+5. securedblink validates the token, executes the SQL, and consumes the token
+```
+
+## Supported databases
+
+`securedblink` uses SQLAlchemy URLs. PostgreSQL and SQLite work out of the box
+with the standard package install; other dialects need their driver.
+
+| Database | URL example | Install |
+|---|---|---|
+| PostgreSQL | `postgresql://user:pass@host:5432/db` | Included |
+| SQLite | `sqlite:///./path/to/file.db` | Built in |
+| Oracle | `oracle+oracledb://user:pass@host:1521/service` | `uv tool install 'securedblink[oracle]'` |
+| MySQL | `mysql+pymysql://user:pass@host:3306/db` | `uv tool install 'securedblink[mysql]'` |
+| SQL Server | `mssql+pyodbc://user:pass@host/db?driver=...` | `uv tool install 'securedblink[mssql]'` |
+| Snowflake | `snowflake://user:pass@account/db/schema` | Install `snowflake-sqlalchemy` manually |
+
+Any SQLAlchemy-compatible dialect can be used once its driver is installed.
 
 ## Tools
 
-| Tool                       | Description                                              |
-|----------------------------|----------------------------------------------------------|
-| `list_connections`         | List all configured DB connections (env + vault)        |
-| `list_tables`              | List tables and views in a connection                    |
-| `describe_table`           | Show columns, PK, FKs, indexes for a table               |
-| `query`                    | Execute read-only SQL (SELECT, EXPLAIN, etc.)            |
-| `preview_mutation`         | Preview a write/destructive query, get a confirmation token |
-| `execute_mutation`         | Execute after you confirm (requires token from above)    |
-| `vault_register_connection` | Register a connection in the credential vault            |
-| `vault_register_from_path` | Register a connection from a config file                 |
-| `vault_list`               | List all registered vault aliases                         |
-| `vault_revoke`             | Remove a connection from the vault                        |
+| Tool | Purpose |
+|---|---|
+| `list_connections` | List environment and vault connections |
+| `list_tables` | List tables and views |
+| `describe_table` | Show columns, keys, foreign keys, and indexes |
+| `query` | Execute read-only SQL |
+| `preview_mutation` | Preview a write and issue an approval token |
+| `execute_mutation` | Execute an approved write |
+| `vault_register_connection` | Store a connection in the credential vault |
+| `vault_register_from_path` | Import a connection from `.env`, `.properties`, or YAML |
+| `vault_list` | List registered vault aliases and metadata |
+| `vault_revoke` | Remove a vault alias |
 
-## How writes get approved
+## Credential vault
 
-Every write or destructive query follows the same flow:
+The vault stores connection credentials in the platform's secure credential
+manager: macOS Keychain, Linux Secret Service, or Windows Credential Manager.
+The agent can use an alias without receiving the stored username or password.
 
-```
-Agent calls preview_mutation(connection, sql)
-  → Server returns a preview of the change + a one-time token (5-minute TTL)
-
-Agent shows you the preview:
-  "This will DELETE 42 rows from orders. Do you confirm?"
-
-You say yes.
-
-Agent calls execute_mutation(connection, sql, token)
-  → Server validates the token, executes, and consumes it.
-```
-
-The token binds the connection name and the exact SQL to the approval. If the agent tries to run different SQL or target a different connection, the server rejects the token. Tokens expire after 5 minutes and can only be used once.
-
-## Custom drivers
-
-For source checkouts, `run.sh` detects the URL scheme and installs the driver
-for you. For example, setting `DB_SNOW=snowflake://...` causes the script to
-install `snowflake-sqlalchemy` on first launch.
-
-If you prefer to install manually:
+To register a connection from the terminal:
 
 ```bash
-uv pip install snowflake-sqlalchemy
-```
-
-For a published package, install optional drivers with the binary:
-
-```bash
-uv tool install 'securedblink[oracle]'
-uv tool install 'securedblink[mysql]'
-uv tool install 'securedblink[mssql]'
-```
-
-The SQLAlchemy dialect registry resolves the driver from the URL prefix.
-
-## Environment reference
-
-| Variable       | Default | Description                                      |
-|----------------|---------|--------------------------------------------------|
-| `DB_<NAME>`    | —       | Connection URL for a named database              |
-| `DB_MAX_ROWS`  | `500`   | Max rows returned per `query` call               |
-| `SECUREDBLINK_ALLOWED_ROOTS` | — | Colon-separated list of directories for vault file registration |
-
-## Credential Vault
-
-The credential vault lets you store database credentials securely using your system's credential manager (macOS Keychain, Linux Secret Service, Windows Credential Manager). Once stored, credentials are **never** visible to the agent or in tool responses, logs, or traces.
-
-### Why use the vault
-
-- **Security:** Credentials are stored using the OS credential manager, not in plaintext files or environment variables
-- **Isolation:** The MCP server is the only component that ever holds plaintext credentials
-- **Clean separation:** Use descriptive aliases instead of exposing connection strings in agent conversations
-
-### Vault tools
-
-| Tool | Description |
-|------|-------------|
-| `vault_register_connection` | Register a connection by providing JDBC URL, username, and password directly |
-| `vault_register_from_path` | Register a connection by reading a config file (.env, .properties, .yml) |
-| `vault_list` | List all registered vault aliases with metadata |
-| `vault_revoke` | Remove a connection from the vault |
-
-### Using the vault
-
-#### Register a connection directly
-
-```bash
-# The agent calls:
-vault_register_connection(
-  alias="prod",
-  jdbc_url="postgresql://user:password@host:5432/mydb",
-  username="user",
-  password="password"
-)
-# Returns: {"alias": "prod", "status": "registered"}
-# The credentials are now stored securely and never echoed back
-```
-
-Then use the alias with any query tool:
-```bash
-query(connection_name="prod", sql="SELECT * FROM users")
-```
-
-#### Register from a config file
-
-First, configure the allowed directories:
-```bash
-export SECUREDBLINK_ALLOWED_ROOTS="/path/to/configs:/another/path"
-```
-
-Then register:
-```bash
-# Agent calls:
-vault_register_from_path(
-  alias="prod",
-  file_path="/path/to/configs/prod.env"
-)
-```
-
-Supported file formats:
-- **.env:** `DB_URL=postgresql://...`, `DB_USERNAME=...`, `DB_PASSWORD=...`
-- **.properties:** `jdbc.url=postgresql://...`, `jdbc.username=...`, `jdbc.password=...`
-- **.yml/.yaml:** Spring Boot style with `spring.datasource.url/username/password`
-
-#### List and revoke
-
-```bash
-# List all vault aliases
-vault_list()
-# Returns: {"aliases": [{"name": "prod", "created_at": "...", "source": "direct"}, ...]}
-
-# Remove a connection
-vault_revoke(alias="prod")
-# Returns: {"alias": "prod", "status": "revoked", "existed": true}
-```
-
-#### Command-line interface
-
-You can also register connections from the terminal without going through the agent. Use the `securedblink` command with a subcommand (or `python -m securedblink.server` if you run from a source checkout):
-
-```bash
-# Register a connection directly (prompts-free, useful for scripting)
 securedblink register \
-  --alias prod \
-  --jdbc-url "postgresql://user:password@host:5432/mydb" \
+  --alias analytics \
+  --jdbc-url "postgresql://host:5432/analytics" \
   --username user \
   --password password \
   --driver org.postgresql.Driver
 
-# Overwrite an existing alias
-securedblink register --alias prod --jdbc-url "..." --overwrite
-
-# Register from a config file (requires SECUREDBLINK_ALLOWED_ROOTS)
-export SECUREDBLINK_ALLOWED_ROOTS="/path/to/configs"
-securedblink register-from-path --alias prod --file-path /path/to/configs/prod.env
-
-# List registered aliases
 securedblink list
 ```
 
-Running `securedblink` with no subcommand starts the MCP server.
+To import a configuration file, first allow-list its directory:
 
-> **Note (macOS):** `SECUREDBLINK_ALLOWED_ROOTS` is compared against resolved paths. `/tmp` resolves to `/private/tmp`, so use `SECUREDBLINK_ALLOWED_ROOTS="/private/tmp"` if your config files live in `/tmp`.
+```bash
+export SECUREDBLINK_ALLOWED_ROOTS="/path/to/configs"
+securedblink register-from-path \
+  --alias analytics \
+  --file-path /path/to/configs/analytics.env
+```
 
-### Security requirements
+Supported input formats are `.env`, `.properties`, and Spring Boot-style
+`.yml`/`.yaml`. Paths outside `SECUREDBLINK_ALLOWED_ROOTS` are rejected, and
+credentials are redacted from logs and error messages.
 
-- The `vault_register_from_path` tool **requires** `SECUREDBLINK_ALLOWED_ROOTS` to be set
-- Paths outside the allow-listed roots are **rejected** — no exceptions
-- All logging and exception messages are **redacted** to prevent credential leaks
-- No tool returns plaintext credentials under any circumstance
+## Source checkout
 
-## Contributing
+Use `run.sh` for development or when you want the launcher to prepare the
+environment automatically:
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and PR guidelines.
+```bash
+cd securedblink
+DB_LOCAL=sqlite:///./local.db ./run.sh
+```
+
+`run.sh` syncs the project, reads `.env` for manual runs, detects drivers from
+`DB_*` URL schemes, installs missing drivers, and then starts `securedblink`.
+The installed binary does none of that setup; configure its environment and
+install optional drivers explicitly.
+
+## Environment reference
+
+| Variable | Default | Description |
+|---|---:|---|
+| `DB_<NAME>` | — | SQLAlchemy URL for a named connection |
+| `DB_MAX_ROWS` | `500` | Maximum rows returned by `query` |
+| `SECUREDBLINK_ALLOWED_ROOTS` | — | Colon-separated roots allowed for vault file imports |
+
+## Development
+
+Requirements: Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync
+uv run pytest -q
+uv run ruff check .
+uv run mypy --strict securedblink
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow.
+
+## Security
+
+Please report vulnerabilities according to [SECURITY.md](SECURITY.md). Never
+place real database credentials in issues, pull requests, or committed config
+files.
 
 ## License
 
