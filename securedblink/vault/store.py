@@ -27,6 +27,31 @@ class VaultStoreError(Exception):
     """Base exception for vault storage errors."""
 
 
+# Backend modules that wrap a real OS credential manager. Detection keys on
+# module paths because class names shifted across keyring releases (the
+# macOS backend moved from OSX.Keychain to macOS.Keyring in keyring 21+),
+# so matching on names like "Keychain" silently misses current versions.
+_SECURE_BACKEND_MODULES = frozenset(
+    {
+        "keyring.backends.macOS",  # macOS Keychain
+        "keyring.backends.Windows",  # Windows Credential Manager
+        "keyring.backends.SecretService",  # libsecret (modern keyring)
+        "keyring.backends.secretstorage",  # libsecret (legacy layout)
+    }
+)
+
+# Backends that must never be trusted with credentials. The plaintext
+# fallback (keyring.backends.fail) is caught separately via its module path;
+# its class name ("Keyring") collides with legitimate backends such as
+# keyring.backends.macOS.Keyring.
+_INSECURE_BACKEND_NAMES = frozenset({"ChainerKeyring"})
+
+
+def _is_known_secure_backend(backend: object) -> bool:
+    """Return True when the backend wraps a real OS credential manager."""
+    return type(backend).__module__ in _SECURE_BACKEND_MODULES
+
+
 def _get_keyring_backend_name() -> str:
     """Get the name of the current keyring backend."""
     try:
@@ -51,33 +76,19 @@ def _is_backend_secure() -> bool:
         backend = keyring.get_keyring()
         backend_name = type(backend).__name__
 
-        # These backends are known to be insecure
-        insecure_backends = {
-            "Keyring",  # fail.Keyring - plaintext fallback
-            "ChainerKeyring",  # May chain to insecure
-        }
-
-        if backend_name in insecure_backends:
+        if backend_name in _INSECURE_BACKEND_NAMES:
             return False
 
-        # Check the module path for fail backend
+        # Check the module path for plaintext fail backend
         if "fail" in type(backend).__module__:
             return False
 
-        # On Linux, check if using SecretService (secure) vs plaintext
-        if "linux" in type(backend).__module__.lower():
-            # Linux: libsecret/SecretService is secure
-            if (
-                "SecretService" in backend_name
-                or "secretstorage" in type(backend).__module__
-            ):
-                return True
-            # Other Linux backends may be insecure
-            return False
-
-        # macOS Keychain and Windows Credential Manager are secure
-        if "Keychain" in backend_name or "Win" in backend_name:
+        if _is_known_secure_backend(backend):
             return True
+
+        # On Linux anything outside SecretService may be plaintext
+        if "linux" in type(backend).__module__.lower():
+            return False
 
         # Default to assuming secure if we can't determine
         return True
@@ -88,66 +99,20 @@ def _is_backend_secure() -> bool:
 
 
 def _is_credentials_manager_available() -> bool:
-    """Check if a secure credentials manager is available.
+    """Check if a secure OS credentials manager is available and active.
 
-    This tries to detect if we're on a system with a working
-    credentials manager (Keychain, Secret Service, Credential Manager).
+    This detects whether the active keyring backend is one of the known
+    OS-backed implementations (Keychain, Secret Service, Credential
+    Manager), independent of the keyring release in use.
     """
-    import platform
-
-    system = platform.system().lower()
-
     try:
-        # Try to detect the actual backend being used
+        # Resolve the actual backend being used
         backend = keyring.get_keyring()
 
-        # On macOS, Keychain should be available
-        if system == "darwin":
-            from keyring.backends import macOS
+        return _is_known_secure_backend(backend)
 
-            return isinstance(backend, macOS.Keychain)  # type: ignore[attr-defined]
-
-        # On Linux, check for SecretService
-        if system == "linux":
-            backend_module = type(backend).__module__
-            backend_name = type(backend).__name__
-
-            # keyring 25 exposes the libsecret backend as
-            # keyring.backends.SecretService.Keyring. Older versions expose
-            # it through keyring.backends.secretstorage.
-            if (
-                backend_module
-                in {
-                    "keyring.backends.SecretService",
-                    "keyring.backends.secretstorage",
-                }
-                and backend_name == "Keyring"
-            ):
-                return True
-
-            try:
-                from keyring.backends import Linux  # type: ignore[attr-defined]
-
-                return isinstance(backend, Linux.SecretService)
-            except ImportError:
-                pass
-            # Try to import the libsecret backend
-            try:
-                __import__("keyring.backends.secretstorage")
-                return True
-            except ImportError:
-                pass
-
-        # On Windows, check for Credential Manager
-        if system == "windows":
-            from keyring.backends import Windows
-
-            return isinstance(backend, Windows.WinVaultKeyring)
-
-    except (keyring.errors.KeyringError, ImportError, AttributeError):
-        pass
-
-    return False
+    except (keyring.errors.KeyringError, ImportError, AttributeError, OSError):
+        return False
 
 
 def verify_secure_backend() -> None:
