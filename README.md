@@ -1,9 +1,9 @@
 <div align="center" style="overflow:hidden; border-radius:26px; line-height:0">
-  <img src="./assets/readme/hero.svg" width="100%" alt="securedblink — MCP database gateway. Read freely, preview writes, approve explicitly." style="display:block; border-radius:26px" />
+  <img src="https://raw.githubusercontent.com/paulushcgcj/securedblink/HEAD/assets/readme/hero.svg" width="100%" alt="securedblink — MCP database gateway. Read freely, preview writes, approve explicitly." style="display:block; border-radius:26px" />
 </div>
 
 <p align="center">
-  <a href="https://pypi.org/project/securedblink/"><img src="https://img.shields.io/pypi/v/securedblink.svg" alt="PyPI version"/></a>
+  <a href="https://pypi.org/project/securedblink/"><img src="https://img.shields.io/pypi/v/securedblink.svg?cacheSeconds=3600" alt="PyPI version"/></a>
   <a href="https://pypi.org/project/securedblink/"><img src="https://img.shields.io/pypi/pyversions/securedblink.svg" alt="Python versions"/></a>
   <a href="https://github.com/paulushcgcj/securedblink/actions/workflows/ci.yml"><img src="https://github.com/paulushcgcj/securedblink/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/paulushcgcj/securedblink.svg" alt="License: GPL-3.0"/></a>
@@ -46,7 +46,7 @@ Stack: **Python 3.12+**, **SQLAlchemy 2.0**, **MCP 1.x**, **structlog**, **keyri
 ## How it works
 
 <div align="center" style="overflow:hidden; border-radius:22px; line-height:0">
-  <img src="./assets/readme/workflow.svg" width="100%" alt="How securedblink gates writes: reads run immediately, writes require preview, bound token, explicit human approval, and validated execution. Vault credentials stay on-host." style="display:block; border-radius:22px" />
+  <img src="https://raw.githubusercontent.com/paulushcgcj/securedblink/HEAD/assets/readme/workflow.svg" width="100%" alt="How securedblink gates writes: reads run immediately, writes require preview, bound token, explicit human approval, and validated execution. Vault credentials stay on-host." style="display:block; border-radius:22px" />
 </div>
 
 **Read lane — free.** `query` executes immediately and returns rows capped by `DB_MAX_ROWS` (default 500).
