@@ -4,8 +4,13 @@ import os
 from unittest.mock import Mock, patch
 
 import pytest
+from sqlalchemy.engine import make_url
 
-from securedblink.connections import ConnectionManager, _load_urls
+from securedblink.connections import (
+    ConnectionManager,
+    _load_urls,
+    _normalize_oracle_url,
+)
 
 
 class TestLoadUrls:
@@ -149,3 +154,60 @@ class TestConnectionManager:
             vault.get.return_value = {"username": "user"}
             with pytest.raises(ValueError, match="no connection URL"):
                 manager.get_engine_by_alias("broken")
+
+
+class TestNormalizeOracleUrl:
+    """Oracle URL paths must resolve as service names, not SIDs (DPY-6003)."""
+
+    @pytest.mark.parametrize("drivername", ["oracle+oracledb", "oracle"])
+    def test_promotes_bare_path_to_service_name(self, drivername):
+        url = _normalize_oracle_url(make_url(f"{drivername}://host:1521/waste"))
+        assert url.query["service_name"] == "waste"
+        assert not url.database
+
+    def test_explicit_service_name_is_untouched(self):
+        url = _normalize_oracle_url(
+            make_url("oracle+oracledb://host:1521/?service_name=waste")
+        )
+        assert url.query["service_name"] == "waste"
+        assert not url.database
+
+    def test_explicit_sid_respected_over_path(self):
+        url = _normalize_oracle_url(
+            make_url("oracle+oracledb://host:1521/waste?sid=waste")
+        )
+        assert url.database == "waste"
+        assert "service_name" not in url.query
+
+    def test_non_oracle_urls_pass_through(self):
+        url = _normalize_oracle_url(make_url("postgresql://user:pass@host:5432/mydb"))
+        assert url.database == "mydb"
+        assert "service_name" not in url.query
+
+
+class TestOracleServiceNameRegression:
+    """Engines built from stored URLs must use service-name semantics."""
+
+    def test_vault_engine_promotes_path_to_service_name(self):
+        vault = Mock()
+        vault.get.return_value = {
+            "jdbc_url": "oracle+oracledb://10.0.0.59:1521/WASTE",
+            "username": "app",
+            "password": "secret",
+        }
+        vault.exists.return_value = True
+        with patch("securedblink.vault.get_vault_store", return_value=vault):
+            manager = ConnectionManager()
+            engine = manager.get_engine_by_alias("waste-local")
+            assert engine.url.query["service_name"] == "WASTE"
+            assert not engine.url.database
+            assert engine.url.username == "app"
+
+    def test_env_engine_promotes_path_to_service_name(self, monkeypatch):
+        monkeypatch.setenv(
+            "DB_WAREHOUSE", "oracle+oracledb://user:pass@host:1521/warehouse"
+        )
+        manager = ConnectionManager()
+        engine = manager.engine("warehouse")
+        assert engine.url.query["service_name"] == "warehouse"
+        assert not engine.url.database

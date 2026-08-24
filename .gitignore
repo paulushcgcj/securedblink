@@ -247,3 +247,4 @@ pyrightconfig.json
 CHANGES.md
 
 # End of https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,macos,linux
+*.code-workspace
