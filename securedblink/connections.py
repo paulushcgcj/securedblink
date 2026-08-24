@@ -14,7 +14,7 @@ Use ConnectionManager.get_engine_by_alias() to retrieve vault-stored connections
 import os
 
 from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 
 _PREFIX = "DB_"
 _RESERVED = {"MAX_ROWS"}  # env vars that are config, not connections
@@ -92,6 +92,10 @@ class ConnectionManager:
     def _get_vault_engine(self, alias: str) -> Engine:
         """Get engine for a vault alias.
 
+        Credentials stored separately in the vault are applied onto the
+        parsed URL. Vault-stored username/password take precedence over
+        any credentials embedded in the URL itself.
+
         Args:
             alias: The vault alias
 
@@ -116,10 +120,15 @@ class ConnectionManager:
             if not jdbc_url:
                 raise ValueError(f"Vault alias '{alias}' has no connection URL.")
 
-            # Create engine with the URL from vault
-            # Note: username/password from vault are embedded in the URL
-            # or will be handled by the database driver
-            self._vault_engines[alias] = create_engine(jdbc_url)
+            url = make_url(jdbc_url)
+            username = config.get("username")
+            password = config.get("password")
+            if username:
+                url = url.set(username=username)
+            if password:
+                url = url.set(password=password)
+
+            self._vault_engines[alias] = create_engine(url)
 
         return self._vault_engines[alias]
 
