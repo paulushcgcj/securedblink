@@ -19,6 +19,7 @@ import time
 from typing import Any, NamedTuple
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.server import Settings as _FastMCPServerSettings
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import text
 
@@ -41,6 +42,12 @@ from securedblink.vault.store import (
 # ---------------------------------------------------------------------------
 # Server
 # ---------------------------------------------------------------------------
+
+# mcp's Settings.lifespan annotates with a FastMCP forward reference that is
+# only defined later in the same module. pydantic-settings >= 2.15 emits
+# IncompleteFieldDefinitionWarning when settings sources resolve that field,
+# so rebuild the model now that the module is fully imported.
+_FastMCPServerSettings.model_rebuild()
 
 mcp = FastMCP(
     "securedblink",

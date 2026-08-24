@@ -867,27 +867,51 @@ class TestVaultStore:
     def test_store_backend_detection(self):
         import securedblink.vault.store as store_module
 
-        class Keyring:
+        class FailKeyring:
             pass
+
+        FailKeyring.__module__ = "keyring.backends.fail"
 
         class ChainerKeyring:
             pass
 
-        class SecretService:
+        class UnknownBackend:
             pass
 
-        SecretService.__module__ = "keyring.backends.secretstorage"
-        with patch.object(store_module.keyring, "get_keyring", return_value=Keyring()):
+        class LegacySecretService:
+            pass
+
+        LegacySecretService.__module__ = "keyring.backends.secretstorage"
+
+        # Plaintext fallback must never be trusted
+        with patch.object(
+            store_module.keyring, "get_keyring", return_value=FailKeyring()
+        ):
             assert not store_module._is_backend_secure()
+
+        # Chainers may delegate to insecure backends
         with patch.object(
             store_module.keyring, "get_keyring", return_value=ChainerKeyring()
         ):
             assert not store_module._is_backend_secure()
+
+        # libsecret backends are secure regardless of keyring generation
         with patch.object(
-            store_module.keyring, "get_keyring", return_value=SecretService()
+            store_module.keyring, "get_keyring", return_value=LegacySecretService()
         ):
             assert store_module._is_backend_secure()
 
+        # Modern macOS Keychain backend (class renamed to Keyring in
+        # keyring 21+) must count as a secure credential manager.
+        modern_macos = type("Keyring", (), {})
+        modern_macos.__module__ = "keyring.backends.macOS"
+        with patch.object(
+            store_module.keyring, "get_keyring", return_value=modern_macos()
+        ):
+            assert store_module._is_credentials_manager_available()
+            assert store_module._is_backend_secure()
+
+        # Current libsecret layout keeps working on any platform
         current_secret_service = type("Keyring", (), {})
         current_secret_service.__module__ = "keyring.backends.SecretService"
         with patch.object(
@@ -896,6 +920,14 @@ class TestVaultStore:
             return_value=current_secret_service(),
         ):
             assert store_module._is_credentials_manager_available()
+
+        # Unrecognized backends follow the assume-secure default but are
+        # never treated as an OS credential manager.
+        with patch.object(
+            store_module.keyring, "get_keyring", return_value=UnknownBackend()
+        ):
+            assert store_module._is_backend_secure()
+            assert not store_module._is_credentials_manager_available()
 
     def test_store_backend_detection_handles_errors(self):
         import securedblink.vault.store as store_module

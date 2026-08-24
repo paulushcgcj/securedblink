@@ -450,3 +450,19 @@ class TestVaultTools:
         assert listed["aliases"][0]["created_at"] == "unknown"
         assert revoked == {"alias": "prod", "status": "revoked", "existed": True}
         vault.delete.assert_called_once_with("prod")
+
+
+def test_fastmcp_settings_forward_refs_resolved():
+    """mcp Settings.lifespan forward ref must resolve at import time.
+
+    pydantic-settings >= 2.15 emits IncompleteFieldDefinitionWarning from
+    settings sources when the FastMCP forward reference in mcp's
+    Settings.lifespan annotation is unresolved; server.py rebuilds the model
+    on import to keep startup quiet.
+    """
+    from mcp.server.fastmcp.server import Settings as FastMCPServerSettings
+
+    import securedblink.server as server_module
+
+    assert server_module._FastMCPServerSettings is FastMCPServerSettings
+    assert FastMCPServerSettings.__pydantic_complete__ is True
