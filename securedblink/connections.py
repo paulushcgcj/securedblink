@@ -7,6 +7,10 @@ Reads connection URLs from environment variables prefixed with DB_:
 
 Connection names are the suffix after DB_, lowercased (e.g. DB_PROD -> 'prod').
 
+For Oracle URLs, a bare path segment is treated as a service name (matching
+JDBC thin convention) and promoted to the explicit ``service_name`` query
+parameter. Pass ``?sid=<name>`` to force legacy SID resolution instead.
+
 Also supports vault-based connections registered via the credential vault.
 Use ConnectionManager.get_engine_by_alias() to retrieve vault-stored connections.
 """
@@ -14,7 +18,7 @@ Use ConnectionManager.get_engine_by_alias() to retrieve vault-stored connections
 import os
 
 from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.engine import URL, Engine, make_url
 
 _PREFIX = "DB_"
 _RESERVED = {"MAX_ROWS"}  # env vars that are config, not connections
@@ -28,6 +32,26 @@ def _load_urls() -> dict[str, str]:
         if key.upper().startswith(prefix_upper)
         and key[len(_PREFIX) :].upper() not in _RESERVED
     }
+
+
+def _normalize_oracle_url(url: URL) -> URL:
+    """Promote an Oracle URL path segment to the ``service_name`` parameter.
+
+    JDBC thin URLs and Spring-style configurations place a service name in
+    the path segment (``//host:port/service``), but SQLAlchemy's Oracle
+    dialects interpret that segment as a SID. Promote it to the explicit
+    ``service_name`` query parameter so connections resolve against the
+    service registered with the listener. Callers needing legacy SID
+    semantics pass ``?sid=<name>``; explicit ``service_name`` or ``sid``
+    parameters are always respected. Non-Oracle URLs pass through unchanged.
+    """
+    if not (url.drivername == "oracle" or url.drivername.startswith("oracle+")):
+        return url
+    if not url.database:
+        return url
+    if {"service_name", "sid"} & set(url.query):
+        return url
+    return url.set(database="").update_query_dict({"service_name": url.database})
 
 
 class ConnectionManager:
@@ -86,7 +110,9 @@ class ConnectionManager:
                     f"Set DB_{name.upper()}=<connection_url> to add via env, "
                     f"or use vault_register_connection to add via vault."
                 )
-            self._engines[key] = create_engine(self._urls[key])
+            self._engines[key] = create_engine(
+                _normalize_oracle_url(make_url(self._urls[key]))
+            )
         return self._engines[key]
 
     def _get_vault_engine(self, alias: str) -> Engine:
@@ -128,7 +154,7 @@ class ConnectionManager:
             if password:
                 url = url.set(password=password)
 
-            self._vault_engines[alias] = create_engine(url)
+            self._vault_engines[alias] = create_engine(_normalize_oracle_url(url))
 
         return self._vault_engines[alias]
 
