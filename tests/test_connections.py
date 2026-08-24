@@ -84,6 +84,61 @@ class TestConnectionManager:
             assert manager.engine("prod") is first
             assert manager.is_vault_alias("PROD") is True
 
+    def test_vault_engine_applies_stored_credentials(self):
+        """Vault username/password must reach the engine URL (DPY-4001 regression)."""
+        vault = Mock()
+        vault.get.return_value = {
+            "jdbc_url": "oracle+oracledb://host:1521/?service_name=waste",
+            "username": "app",
+            "password": "secret",
+        }
+        vault.exists.return_value = True
+        with patch("securedblink.vault.get_vault_store", return_value=vault):
+            manager = ConnectionManager()
+            engine = manager.get_engine_by_alias("waste-local")
+            assert engine.url.username == "app"
+            assert engine.url.password == "secret"
+
+    def test_vault_credentials_override_url_embedded(self):
+        """Separately stored credentials take precedence over URL-embedded ones."""
+        vault = Mock()
+        vault.get.return_value = {
+            "jdbc_url": "postgresql://stale:old@host:5432/db",
+            "username": "fresh",
+            "password": "new",
+        }
+        vault.exists.return_value = True
+        with patch("securedblink.vault.get_vault_store", return_value=vault):
+            manager = ConnectionManager()
+            engine = manager.get_engine_by_alias("prod")
+            assert engine.url.username == "fresh"
+            assert engine.url.password == "new"
+            assert engine.url.host == "host"
+            assert engine.url.database == "db"
+
+    def test_vault_username_without_password_is_applied(self):
+        vault = Mock()
+        vault.get.return_value = {
+            "jdbc_url": "postgresql://host:5432/db",
+            "username": "user",
+        }
+        vault.exists.return_value = True
+        with patch("securedblink.vault.get_vault_store", return_value=vault):
+            manager = ConnectionManager()
+            engine = manager.get_engine_by_alias("partial")
+            assert engine.url.username == "user"
+            assert engine.url.password is None
+
+    def test_vault_engine_without_credentials_stays_credential_less(self):
+        vault = Mock()
+        vault.get.return_value = {"jdbc_url": "sqlite:///:memory:"}
+        vault.exists.return_value = True
+        with patch("securedblink.vault.get_vault_store", return_value=vault):
+            manager = ConnectionManager()
+            engine = manager.get_engine_by_alias("anon")
+            assert engine.url.username is None
+            assert engine.url.password is None
+
     def test_vault_engine_errors(self):
         vault = Mock()
         with patch("securedblink.vault.get_vault_store", return_value=vault):
