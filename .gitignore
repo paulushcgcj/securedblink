@@ -183,6 +183,10 @@ venv.bak/
 # Test databases (untracked, created by quick-start; not for version control)
 test.db
 
+# Created in the repo root when tests connect to the relative URL
+# "sqlite:///db"; the registration reachability check opens these URLs for real.
+/db
+
 # Spyder project settings
 .spyderproject
 .spyproject
