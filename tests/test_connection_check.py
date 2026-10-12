@@ -4,18 +4,14 @@ This module tests the connection verification features added in issue #20.
 """
 
 import json
-import os
 import time
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import OperationalError, SQLAlchemyError
 
 from securedblink.vault.check import (
-    ConnectionCheckResult,
     DEFAULT_CHECK_TIMEOUT,
+    ConnectionCheckResult,
     _build_engine_for_check,
     _get_probe_statement,
     _get_timeout,
@@ -24,7 +20,6 @@ from securedblink.vault.check import (
     verify_and_store_connection,
 )
 from securedblink.vault.redact import redact_exception
-
 
 # ---------------------------------------------------------------------------
 # Probe Statement Tests
@@ -160,7 +155,9 @@ class TestUrlBuilding:
 
     def test_oracle_url_with_sid(self):
         """Oracle URLs with explicit sid should not be modified."""
-        url = _build_engine_for_check("oracle+oracledb://user:pass@host:1521/?sid=mysid")
+        url = _build_engine_for_check(
+            "oracle+oracledb://user:pass@host:1521/?sid=mysid"
+        )
         assert url.query.get("sid") == "mysid"
         # Database should still be empty since sid is present
         assert url.database == ""
@@ -302,13 +299,8 @@ class TestVerifyAndStoreConnection:
         """Successful check should store the connection."""
         import securedblink.vault.store as store_module
 
-        # Mock the vault store
-        mock_vault = MagicMock()
-
         with (
-            patch.object(
-                store_module, "INDEX_FILE", tmp_path / "aliases.json"
-            ),
+            patch.object(store_module, "INDEX_FILE", tmp_path / "aliases.json"),
             patch.object(store_module, "INDEX_DIR", tmp_path),
             patch("keyring.set_password"),
             patch("keyring.get_password", return_value=None),
@@ -348,9 +340,7 @@ class TestVerifyAndStoreConnection:
         mock_vault = MagicMock()
 
         with (
-            patch.object(
-                store_module, "INDEX_FILE", tmp_path / "aliases.json"
-            ),
+            patch.object(store_module, "INDEX_FILE", tmp_path / "aliases.json"),
             patch.object(store_module, "INDEX_DIR", tmp_path),
             patch("keyring.set_password"),
             patch("keyring.get_password", return_value=None),
@@ -391,9 +381,7 @@ class TestVerifyAndStoreConnection:
         import securedblink.vault.store as store_module
 
         with (
-            patch.object(
-                store_module, "INDEX_FILE", tmp_path / "aliases.json"
-            ),
+            patch.object(store_module, "INDEX_FILE", tmp_path / "aliases.json"),
             patch.object(store_module, "INDEX_DIR", tmp_path),
             patch("keyring.set_password"),
             patch("keyring.get_password", return_value=None),
@@ -433,9 +421,7 @@ class TestVerifyAndStoreConnection:
         import securedblink.vault.store as store_module
 
         with (
-            patch.object(
-                store_module, "INDEX_FILE", tmp_path / "aliases.json"
-            ),
+            patch.object(store_module, "INDEX_FILE", tmp_path / "aliases.json"),
             patch.object(store_module, "INDEX_DIR", tmp_path),
             patch("keyring.set_password"),
             patch("keyring.get_password", return_value=None),
@@ -468,9 +454,7 @@ class TestVerifyAndStoreConnection:
         monkeypatch.setenv("SECUREDBLINK_SKIP_CONNECT_CHECK", "1")
 
         with (
-            patch.object(
-                store_module, "INDEX_FILE", tmp_path / "aliases.json"
-            ),
+            patch.object(store_module, "INDEX_FILE", tmp_path / "aliases.json"),
             patch.object(store_module, "INDEX_DIR", tmp_path),
             patch("keyring.set_password"),
             patch("keyring.get_password", return_value=None),
@@ -501,7 +485,9 @@ class TestVerifyAndStoreConnection:
         import securedblink.vault.store as store_module
 
         index_file = tmp_path / "aliases.json"
-        index_file.write_text(json.dumps({"test": {"created_at": "2024-01-01", "source": "direct"}}))
+        index_file.write_text(
+            json.dumps({"test": {"created_at": "2024-01-01", "source": "direct"}})
+        )
 
         with (
             patch.object(store_module, "INDEX_FILE", index_file),
@@ -568,7 +554,7 @@ class TestIntegrationWithRealDatabase:
 
     def test_check_with_nonexistent_sqlite_file(self, tmp_path):
         """Check should succeed with non-existent SQLite file (SQLite creates it).
-        
+
         Note: SQLite automatically creates the database file if it doesn't exist,
         so this test verifies that the check works even when the file doesn't exist yet.
         """
@@ -611,9 +597,7 @@ class TestRedactionInConnectionCheck:
         """Test the redact_exception function directly."""
         # Create an exception with credentials in the message
         try:
-            raise ValueError(
-                "Connection failed: postgresql://user:password@host/db"
-            )
+            raise ValueError("Connection failed: postgresql://user:password@host/db")
         except ValueError as e:
             redacted = redact_exception(e)
             assert "password" not in redacted

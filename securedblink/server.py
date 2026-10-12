@@ -27,7 +27,6 @@ from securedblink.classifier import classify
 from securedblink.connections import ConnectionManager
 from securedblink.log import get_logger
 from securedblink.vault import (
-    ConnectionCheckResult,
     get_resolver,
     get_vault_store,
     parse_config_file,
@@ -731,8 +730,8 @@ def cli_main(argv: list[str] | None = None) -> int:
         check_for_update,
         installation_guidance,
     )
-    from securedblink.vault.store import VaultStoreError, get_vault_store
     from securedblink.vault.check import verify_and_store_connection
+    from securedblink.vault.store import VaultStoreError, get_vault_store
 
     try:
         if args.command == "register":
@@ -752,7 +751,9 @@ def cli_main(argv: list[str] | None = None) -> int:
 
             if stored:
                 if check_result is None:
-                    log.info(f"Alias {args.alias!r} registered in vault (check skipped).")
+                    log.info(
+                        f"Alias {args.alias!r} registered in vault (check skipped)."
+                    )
                 elif check_result.unverified:
                     log.info(
                         f"Alias {args.alias!r} registered in vault "

@@ -7,7 +7,7 @@ tested using the same URL normalization path as runtime queries.
 
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import create_engine, text
@@ -65,7 +65,7 @@ class ConnectionCheckResult:
     error_type: str | None = None
     probe_used: str = ""
     check_duration: float = 0.0
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     dialect: str = ""
     unverified: bool = False
 
@@ -105,7 +105,9 @@ def _get_timeout() -> float:
         Timeout in seconds (always positive)
     """
     try:
-        timeout = float(os.getenv("SECUREDBLINK_CONNECT_CHECK_TIMEOUT", DEFAULT_CHECK_TIMEOUT))
+        timeout = float(
+            os.getenv("SECUREDBLINK_CONNECT_CHECK_TIMEOUT", DEFAULT_CHECK_TIMEOUT)
+        )
         # Ensure timeout is positive
         return max(0.1, timeout) if timeout > 0 else DEFAULT_CHECK_TIMEOUT
     except ValueError:
@@ -228,7 +230,7 @@ def check_connection_reachability(
         # For SQLite, we cannot use connect_timeout as it's not supported
         # For other databases, we'll use the timeout in connect_args
         engine_kwargs: dict[str, Any] = {}
-        
+
         # Only set timeout for non-SQLite databases
         if dialect not in ("sqlite",) and timeout > 0:
             # connect_timeout is supported by some database drivers
