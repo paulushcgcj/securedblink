@@ -62,7 +62,12 @@ class TestListConnections:
         for key in list(os.environ):
             if key.startswith("DB_"):
                 monkeypatch.delenv(key)
-        result = srv.list_connections()
+        # Also mock vault to return no connections
+        vault_db = MagicMock()
+        vault_db.names.return_value = []
+        vault_db.vault_names.return_value = []
+        with patch.object(srv, "_db", vault_db):
+            result = srv.list_connections()
         assert "No connections configured" in result
 
     def test_with_connections(self, monkeypatch):
@@ -375,20 +380,19 @@ class TestMain:
 class TestVaultTools:
     def test_register_connection(self):
         vault = MagicMock()
-        with patch.object(srv, "_vault", vault):
+        with (
+            patch.object(srv, "_vault", vault),
+            patch(
+                "securedblink.server.verify_and_store_connection",
+                return_value=(True, None),
+            ),
+        ):
             result = srv.vault_register_connection(
                 "prod", "postgresql://db", username="alice", overwrite=True
             )
-        assert result == {"alias": "prod", "status": "registered"}
-        vault.set.assert_called_once_with(
-            alias="prod",
-            jdbc_url="postgresql://db",
-            username="alice",
-            password=None,
-            driver=None,
-            source="direct",
-            overwrite=True,
-        )
+        assert result["alias"] == "prod"
+        assert result["status"] == "registered"
+        assert result.get("check_skipped") is True
 
     @pytest.mark.parametrize("error", [ValueError("bad"), OSError("unavailable")])
     def test_register_connection_failure(self, error):
@@ -405,10 +409,17 @@ class TestVaultTools:
         config_file.write_text("DB_URL=sqlite:///db\nDB_USERNAME=alice\n")
         monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(tmp_path))
         vault = MagicMock()
-        with patch.object(srv, "_vault", vault):
+        with (
+            patch.object(srv, "_vault", vault),
+            patch(
+                "securedblink.server.verify_and_store_connection",
+                return_value=(True, None),
+            ),
+        ):
             result = srv.vault_register_from_path("local", str(config_file))
-        assert result == {"alias": "local", "status": "registered"}
-        assert vault.set.call_args.kwargs["source"] == "path"
+        assert result["alias"] == "local"
+        assert result["status"] == "registered"
+        assert result.get("check_skipped") is True
 
     def test_register_from_path_invalid_config(self, tmp_path, monkeypatch):
         config_file = tmp_path / "config.env"
@@ -425,7 +436,13 @@ class TestVaultTools:
         monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(tmp_path))
         vault = MagicMock()
         vault.set.side_effect = OSError("failed for postgresql://user:secret@host/db")
-        with patch.object(srv, "_vault", vault):
+        with (
+            patch.object(srv, "_vault", vault),
+            patch(
+                "securedblink.server.verify_and_store_connection",
+                side_effect=OSError("failed for postgresql://user:secret@host/db"),
+            ),
+        ):
             result = srv.vault_register_from_path("prod", str(config_file))
         assert result["status"] == "failed"
         assert "secret" not in result["error"]

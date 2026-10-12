@@ -27,11 +27,13 @@ from securedblink.classifier import classify
 from securedblink.connections import ConnectionManager
 from securedblink.log import get_logger
 from securedblink.vault import (
+    ConnectionCheckResult,
     get_resolver,
     get_vault_store,
     parse_config_file,
     redact_exception,
     validate_and_get_absolute_path,
+    verify_and_store_connection,
 )
 from securedblink.vault.store import (
     InsecureKeyringError,
@@ -136,12 +138,16 @@ def vault_register_connection(
     password: str | None = None,
     driver: str | None = None,
     overwrite: bool = False,
-) -> dict[str, str]:
+    skip_check: bool = False,
+    force_save: bool = False,
+) -> dict[str, Any]:
     """Register a database connection in the credential vault.
 
     Stores the JDBC URL and credentials securely using the system's
-    credential manager. The alias can then be used with other tools
-    instead of passing the connection URL directly.
+    credential manager. Before storing, verifies that the connection
+    is reachable by opening a connection and executing a trivial probe
+    statement. The alias can then be used with other tools instead of
+    passing the connection URL directly.
 
     Args:
         alias: Unique name for this connection (e.g., 'prod', 'local')
@@ -150,16 +156,24 @@ def vault_register_connection(
         password: Database password (optional if embedded in URL)
         driver: JDBC driver class (optional)
         overwrite: If True, replace existing alias (default: False)
+        skip_check: If True, skip the reachability check (default: False)
+        force_save: If True, save even if the check fails (default: False)
 
     Returns:
-        {"alias": alias, "status": "registered"}
+        On success: {"alias": alias, "status": "registered", "check_result": {...}}
+        On check failure (not saved): {"alias": alias, "status": "check_failed", "check_result": {...}, "can_force_save": true}
+        On check failure (force saved): {"alias": alias, "status": "registered_unverified", "check_result": {...}}
+        On other errors: {"error": str, "alias": alias, "status": "failed"}
 
     Note:
         Credentials are NEVER returned in responses, logs, or error messages.
         Use vault_list to see registered aliases.
+        The check uses the same URL normalization as runtime queries,
+        including Oracle service-name promotion.
     """
     try:
-        _vault.set(
+        stored, check_result = verify_and_store_connection(
+            vault_store=_vault,
             alias=alias,
             jdbc_url=jdbc_url,
             username=username,
@@ -167,8 +181,37 @@ def vault_register_connection(
             driver=driver,
             source="direct",
             overwrite=overwrite,
+            skip_check=skip_check,
+            force_save=force_save,
         )
-        return {"alias": alias, "status": "registered"}
+
+        if stored:
+            if check_result is None:
+                # Check was skipped
+                return {"alias": alias, "status": "registered", "check_skipped": True}
+            elif check_result.unverified:
+                # Force saved after failed check
+                return {
+                    "alias": alias,
+                    "status": "registered_unverified",
+                    "check_result": check_result.to_dict(),
+                }
+            else:
+                # Check passed and stored
+                return {
+                    "alias": alias,
+                    "status": "registered",
+                    "check_result": check_result.to_dict(),
+                }
+        else:
+            # Check failed and not stored
+            return {
+                "alias": alias,
+                "status": "check_failed",
+                "check_result": check_result.to_dict() if check_result else {},
+                "can_force_save": True,
+            }
+
     except (VaultStoreError, InsecureKeyringError, ValueError, OSError) as e:
         # Log only the error class + alias — never str(e), which may embed
         # credentials from the JDBC URL.
@@ -185,19 +228,27 @@ def vault_register_from_path(
     alias: str,
     file_path: str,
     overwrite: bool = False,
-) -> dict[str, str]:
+    skip_check: bool = False,
+    force_save: bool = False,
+) -> dict[str, Any]:
     """Register a database connection from a configuration file.
 
     Reads and parses a configuration file (.env, .properties, .yml, .yaml)
-    to extract connection details, then stores them securely in the vault.
+    to extract connection details, then verifies reachability and stores them
+    securely in the vault.
 
     Args:
         alias: Unique name for this connection
         file_path: Path to configuration file
         overwrite: If True, replace existing alias (default: False)
+        skip_check: If True, skip the reachability check (default: False)
+        force_save: If True, save even if the check fails (default: False)
 
     Returns:
-        {"alias": alias, "status": "registered"}
+        On success: {"alias": alias, "status": "registered", "check_result": {...}}
+        On check failure (not saved): {"alias": alias, "status": "check_failed", "check_result": {...}, "can_force_save": true}
+        On check failure (force saved): {"alias": alias, "status": "registered_unverified", "check_result": {...}}
+        On other errors: {"error": str, "alias": alias, "status": "failed"}
 
     Raises:
         ValueError: If the file path is outside the allow-listed roots
@@ -212,6 +263,7 @@ def vault_register_from_path(
         The file must be within a directory listed in SECUREDBLINK_ALLOWED_ROOTS.
         Set SECUREDBLINK_ALLOWED_ROOTS=/path1:/path2 to configure allowed roots.
         Credentials are NEVER returned in responses, logs, or error messages.
+        The check uses the same URL normalization as runtime queries.
     """
     try:
         # Validate path is within allow-listed roots
@@ -227,8 +279,9 @@ def vault_register_from_path(
                 "status": "failed",
             }
 
-        # Store in vault
-        _vault.set(
+        # Verify and store with reachability check
+        stored, check_result = verify_and_store_connection(
+            vault_store=_vault,
             alias=alias,
             jdbc_url=config.jdbc_url or "",
             username=config.username,
@@ -236,9 +289,37 @@ def vault_register_from_path(
             driver=config.driver,
             source="path",
             overwrite=overwrite,
+            skip_check=skip_check,
+            force_save=force_save,
         )
 
-        return {"alias": alias, "status": "registered"}
+        if stored:
+            if check_result is None:
+                # Check was skipped
+                return {"alias": alias, "status": "registered", "check_skipped": True}
+            elif check_result.unverified:
+                # Force saved after failed check
+                return {
+                    "alias": alias,
+                    "status": "registered_unverified",
+                    "check_result": check_result.to_dict(),
+                }
+            else:
+                # Check passed and stored
+                return {
+                    "alias": alias,
+                    "status": "registered",
+                    "check_result": check_result.to_dict(),
+                }
+        else:
+            # Check failed and not stored
+            return {
+                "alias": alias,
+                "status": "check_failed",
+                "check_result": check_result.to_dict() if check_result else {},
+                "can_force_save": True,
+            }
+
     except ValueError as e:
         # Path validation errors are expected and should be returned
         log.warning("vault_register_from_path_failed", alias=alias, error="path")
@@ -584,6 +665,16 @@ def cli_main(argv: list[str] | None = None) -> int:
     register_parser.add_argument(
         "--overwrite", action="store_true", help="Replace existing alias"
     )
+    register_parser.add_argument(
+        "--skip-check",
+        action="store_true",
+        help="Skip the reachability check (for headless/offline registration)",
+    )
+    register_parser.add_argument(
+        "--force-save",
+        action="store_true",
+        help="Save the connection even if the reachability check fails",
+    )
 
     # Register from path subcommand
     register_path_parser = subparsers.add_parser(
@@ -599,6 +690,16 @@ def cli_main(argv: list[str] | None = None) -> int:
     )
     register_path_parser.add_argument(
         "--overwrite", action="store_true", help="Replace existing alias"
+    )
+    register_path_parser.add_argument(
+        "--skip-check",
+        action="store_true",
+        help="Skip the reachability check (for headless/offline registration)",
+    )
+    register_path_parser.add_argument(
+        "--force-save",
+        action="store_true",
+        help="Save the connection even if the reachability check fails",
     )
 
     # List subcommand
@@ -631,11 +732,13 @@ def cli_main(argv: list[str] | None = None) -> int:
         installation_guidance,
     )
     from securedblink.vault.store import VaultStoreError, get_vault_store
+    from securedblink.vault.check import verify_and_store_connection
 
     try:
         if args.command == "register":
             vault = get_vault_store()
-            vault.set(
+            stored, check_result = verify_and_store_connection(
+                vault_store=vault,
                 alias=args.alias,
                 jdbc_url=args.jdbc_url,
                 username=args.username,
@@ -643,8 +746,30 @@ def cli_main(argv: list[str] | None = None) -> int:
                 driver=args.driver,
                 source="direct",
                 overwrite=args.overwrite,
+                skip_check=args.skip_check,
+                force_save=args.force_save,
             )
-            log.info(f"Alias {args.alias!r} registered in vault.")
+
+            if stored:
+                if check_result is None:
+                    log.info(f"Alias {args.alias!r} registered in vault (check skipped).")
+                elif check_result.unverified:
+                    log.info(
+                        f"Alias {args.alias!r} registered in vault "
+                        f"(unverified - check failed but force-save used)."
+                    )
+                else:
+                    log.info(
+                        f"Alias {args.alias!r} registered in vault "
+                        f"(check passed in {check_result.check_duration:.2f}s)."
+                    )
+            else:
+                log.error(
+                    f"Alias {args.alias!r} NOT registered - connection check failed. "
+                    f"Use --force-save to save anyway or --skip-check to skip verification."
+                )
+                return 1
+
         elif args.command == "register-from-path":
             from securedblink.vault.parsers import parse_config_file
             from securedblink.vault.pathguard import validate_and_get_absolute_path
@@ -660,7 +785,8 @@ def cli_main(argv: list[str] | None = None) -> int:
                 return 1
 
             vault = get_vault_store()
-            vault.set(
+            stored, check_result = verify_and_store_connection(
+                vault_store=vault,
                 alias=args.alias,
                 jdbc_url=config.jdbc_url or "",
                 username=config.username,
@@ -668,8 +794,33 @@ def cli_main(argv: list[str] | None = None) -> int:
                 driver=config.driver,
                 source="path",
                 overwrite=args.overwrite,
+                skip_check=args.skip_check,
+                force_save=args.force_save,
             )
-            log.info(f"Alias {args.alias!r} registered in vault from {args.file_path}.")
+
+            if stored:
+                if check_result is None:
+                    log.info(
+                        f"Alias {args.alias!r} registered in vault from {args.file_path} "
+                        f"(check skipped)."
+                    )
+                elif check_result.unverified:
+                    log.info(
+                        f"Alias {args.alias!r} registered in vault from {args.file_path} "
+                        f"(unverified - check failed but force-save used)."
+                    )
+                else:
+                    log.info(
+                        f"Alias {args.alias!r} registered in vault from {args.file_path} "
+                        f"(check passed in {check_result.check_duration:.2f}s)."
+                    )
+            else:
+                log.error(
+                    f"Alias {args.alias!r} NOT registered from {args.file_path} - "
+                    f"connection check failed. "
+                    f"Use --force-save to save anyway or --skip-check to skip verification."
+                )
+                return 1
         elif args.command == "list":
             vault = get_vault_store()
             aliases = vault.list_aliases()

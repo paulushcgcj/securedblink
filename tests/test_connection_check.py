@@ -1,0 +1,690 @@
+"""Tests for connection reachability check functionality.
+
+This module tests the connection verification features added in issue #20.
+"""
+
+import json
+import os
+import time
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
+
+from securedblink.vault.check import (
+    ConnectionCheckResult,
+    DEFAULT_CHECK_TIMEOUT,
+    _build_engine_for_check,
+    _get_probe_statement,
+    _get_timeout,
+    _should_skip_check,
+    check_connection_reachability,
+    verify_and_store_connection,
+)
+from securedblink.vault.redact import redact_exception
+
+
+# ---------------------------------------------------------------------------
+# Probe Statement Tests
+# ---------------------------------------------------------------------------
+
+
+class TestProbeStatements:
+    """Tests for dialect-specific probe statements."""
+
+    def test_oracle_probe_statement(self):
+        """Oracle should use SELECT 1 FROM DUAL."""
+        assert _get_probe_statement("oracle") == "SELECT 1 FROM DUAL"
+        assert _get_probe_statement("oracle+oracledb") == "SELECT 1 FROM DUAL"
+        assert _get_probe_statement("oracle+cx_oracle") == "SELECT 1 FROM DUAL"
+
+    def test_postgresql_probe_statement(self):
+        """PostgreSQL should use SELECT 1."""
+        assert _get_probe_statement("postgresql") == "SELECT 1"
+
+    def test_mysql_probe_statement(self):
+        """MySQL should use SELECT 1."""
+        assert _get_probe_statement("mysql") == "SELECT 1"
+        assert _get_probe_statement("mariadb") == "SELECT 1"
+
+    def test_sqlite_probe_statement(self):
+        """SQLite should use SELECT 1."""
+        assert _get_probe_statement("sqlite") == "SELECT 1"
+
+    def test_mssql_probe_statement(self):
+        """MSSQL should use SELECT 1."""
+        assert _get_probe_statement("mssql") == "SELECT 1"
+        assert _get_probe_statement("mssql+pyodbc") == "SELECT 1"
+
+    def test_unknown_dialect_default_probe(self):
+        """Unknown dialects should default to SELECT 1."""
+        assert _get_probe_statement("unknown") == "SELECT 1"
+        assert _get_probe_statement("") == "SELECT 1"
+
+
+# ---------------------------------------------------------------------------
+# Configuration Tests
+# ---------------------------------------------------------------------------
+
+
+class TestConfiguration:
+    """Tests for configuration options."""
+
+    def test_default_timeout(self):
+        """Default timeout should be 5 seconds."""
+        assert _get_timeout() == 5
+
+    def test_custom_timeout_from_env(self, monkeypatch):
+        """Custom timeout should be read from environment variable."""
+        monkeypatch.setenv("SECUREDBLINK_CONNECT_CHECK_TIMEOUT", "10")
+        assert _get_timeout() == 10.0
+
+    def test_invalid_timeout_falls_back_to_default(self, monkeypatch):
+        """Invalid timeout value should fall back to default."""
+        monkeypatch.setenv("SECUREDBLINK_CONNECT_CHECK_TIMEOUT", "invalid")
+        assert _get_timeout() == 5
+
+    def test_skip_check_env_var_false_by_default(self, monkeypatch):
+        """Skip check should be False by default."""
+        monkeypatch.delenv("SECUREDBLINK_SKIP_CONNECT_CHECK", raising=False)
+        assert _should_skip_check() is False
+
+    def test_skip_check_env_var_true_values(self, monkeypatch):
+        """Skip check should be True for various true-like values."""
+        for value in ["1", "true", "True", "TRUE", "yes", "YES"]:
+            monkeypatch.setenv("SECUREDBLINK_SKIP_CONNECT_CHECK", value)
+            assert _should_skip_check() is True
+
+    def test_skip_check_env_var_false_values(self, monkeypatch):
+        """Skip check should be False for various false-like values."""
+        for value in ["0", "false", "False", "FALSE", "no", "NO", ""]:
+            monkeypatch.setenv("SECUREDBLINK_SKIP_CONNECT_CHECK", value)
+            assert _should_skip_check() is False
+
+
+# ---------------------------------------------------------------------------
+# URL Building Tests
+# ---------------------------------------------------------------------------
+
+
+class TestUrlBuilding:
+    """Tests for URL building with normalization."""
+
+    def test_build_url_basic(self):
+        """Basic URL should be built correctly."""
+        url = _build_engine_for_check("sqlite:///./test.db")
+        assert url.drivername == "sqlite"
+        assert url.database == "./test.db"
+
+    def test_build_url_with_credentials(self):
+        """URL with embedded credentials should be preserved."""
+        url = _build_engine_for_check("postgresql://user:pass@localhost/db")
+        assert url.drivername == "postgresql"
+        assert url.username == "user"
+        assert url.password == "pass"
+        assert url.host == "localhost"
+        assert url.database == "db"
+
+    def test_build_url_override_credentials(self):
+        """Provided credentials should override URL credentials."""
+        url = _build_engine_for_check(
+            "postgresql://olduser:oldpass@localhost/db",
+            username="newuser",
+            password="newpass",
+        )
+        assert url.username == "newuser"
+        assert url.password == "newpass"
+
+    def test_oracle_url_normalization(self):
+        """Oracle URLs should be normalized with service_name promotion."""
+        # Oracle URL with service name in path should be promoted to query param
+        url = _build_engine_for_check("oracle+oracledb://user:pass@host:1521/service")
+        assert url.drivername == "oracle+oracledb"
+        assert url.username == "user"
+        assert url.password == "pass"
+        assert url.host == "host"
+        assert url.port == 1521
+        # The database (path) should be empty and service_name should be in query
+        assert url.database == ""
+        assert "service_name" in url.query
+        assert url.query["service_name"] == "service"
+
+    def test_oracle_url_with_explicit_service_name(self):
+        """Oracle URLs with explicit service_name should not be modified."""
+        url = _build_engine_for_check(
+            "oracle+oracledb://user:pass@host:1521/?service_name=myservice"
+        )
+        assert url.query.get("service_name") == "myservice"
+
+    def test_oracle_url_with_sid(self):
+        """Oracle URLs with explicit sid should not be modified."""
+        url = _build_engine_for_check("oracle+oracledb://user:pass@host:1521/?sid=mysid")
+        assert url.query.get("sid") == "mysid"
+        # Database should still be empty since sid is present
+        assert url.database == ""
+
+
+# ---------------------------------------------------------------------------
+# Connection Check Result Tests
+# ---------------------------------------------------------------------------
+
+
+class TestConnectionCheckResult:
+    """Tests for ConnectionCheckResult dataclass."""
+
+    def test_success_result_to_dict(self):
+        """Successful check result should serialize correctly."""
+        result = ConnectionCheckResult(
+            success=True,
+            probe_used="SELECT 1",
+            check_duration=1.234,
+            dialect="sqlite",
+        )
+        d = result.to_dict()
+        assert d["success"] is True
+        assert d["probe_used"] == "SELECT 1"
+        assert d["check_duration"] == 1.234
+        assert d["dialect"] == "sqlite"
+        assert d["unverified"] is False
+        assert "error" not in d
+        assert "error_type" not in d
+
+    def test_failure_result_to_dict(self):
+        """Failed check result should serialize correctly."""
+        result = ConnectionCheckResult(
+            success=False,
+            error="Connection failed",
+            error_type="OperationalError",
+            probe_used="SELECT 1",
+            check_duration=0.5,
+            dialect="postgresql",
+        )
+        d = result.to_dict()
+        assert d["success"] is False
+        assert d["error"] == "Connection failed"
+        assert d["error_type"] == "OperationalError"
+        assert d["probe_used"] == "SELECT 1"
+        assert d["dialect"] == "postgresql"
+
+    def test_unverified_result(self):
+        """Unverified result should have unverified=True."""
+        result = ConnectionCheckResult(
+            success=False,
+            error="Connection failed",
+            unverified=True,
+        )
+        assert result.unverified is True
+        d = result.to_dict()
+        assert d["unverified"] is True
+
+
+# ---------------------------------------------------------------------------
+# Connection Check Tests (Mocked)
+# ---------------------------------------------------------------------------
+
+
+class TestCheckConnectionReachability:
+    """Tests for check_connection_reachability function."""
+
+    def test_successful_check(self, sqlite_engine):
+        """Successful connection check should return success=True."""
+        # Use the existing sqlite engine's URL
+        url = str(sqlite_engine.url)
+
+        result = check_connection_reachability(url)
+        assert result.success is True
+        assert result.error is None
+        assert result.error_type is None
+        assert result.check_duration > 0
+        assert result.dialect == "sqlite"
+        assert result.probe_used == "SELECT 1"
+
+    def test_failed_check_with_redacted_error(self):
+        """Failed connection check should redact credentials in error."""
+        # Invalid URL that will fail - use a URL that embeds credentials
+        result = check_connection_reachability(
+            "postgresql://user:secretpassword@invalid-host:5432/nonexistent"
+        )
+        assert result.success is False
+        assert result.error is not None
+        assert result.error_type is not None
+        # The error message should not contain the password
+        # Note: The error might not contain the password if the connection failed early
+        # but we ensure it's redacted if it does appear
+        if "secretpassword" in result.error:
+            assert "[REDACTED]" in result.error
+        assert result.check_duration > 0
+
+    def test_invalid_url_error(self):
+        """Invalid URL should return appropriate error."""
+        result = check_connection_reachability("not-a-valid-url")
+        assert result.success is False
+        assert result.error is not None
+        assert "Failed to parse" in result.error or "Invalid" in result.error
+
+    def test_check_with_provided_credentials(self, sqlite_engine):
+        """Check with provided credentials should work."""
+        url = str(sqlite_engine.url)
+        result = check_connection_reachability(
+            url, username="testuser", password="testpass"
+        )
+        assert result.success is True
+
+    def test_check_with_custom_timeout(self, sqlite_engine):
+        """Check with custom timeout should work."""
+        url = str(sqlite_engine.url)
+        result = check_connection_reachability(url, timeout=1.0)
+        assert result.success is True
+        assert result.check_duration <= 1.0
+
+    def test_check_redacts_url_in_error(self):
+        """Error messages should not contain the original URL with credentials."""
+        url = "postgresql://testuser:testpass@localhost:5432/testdb"
+        result = check_connection_reachability(url)
+
+        # Whether it succeeds or fails, the error should not contain the password
+        if result.error:
+            assert "testpass" not in result.error
+            assert "[REDACTED]" in result.error or "testuser" not in result.error
+
+
+# ---------------------------------------------------------------------------
+# Verify and Store Tests (Mocked)
+# ---------------------------------------------------------------------------
+
+
+class TestVerifyAndStoreConnection:
+    """Tests for verify_and_store_connection function."""
+
+    def test_store_with_successful_check(self, tmp_path, monkeypatch):
+        """Successful check should store the connection."""
+        import securedblink.vault.store as store_module
+
+        # Mock the vault store
+        mock_vault = MagicMock()
+
+        with (
+            patch.object(
+                store_module, "INDEX_FILE", tmp_path / "aliases.json"
+            ),
+            patch.object(store_module, "INDEX_DIR", tmp_path),
+            patch("keyring.set_password"),
+            patch("keyring.get_password", return_value=None),
+        ):
+            store_module._vault_store = None
+            from securedblink.vault.store import VaultStore
+
+            vault = VaultStore()
+
+            # Mock successful check
+            with patch(
+                "securedblink.vault.check.check_connection_reachability",
+                return_value=ConnectionCheckResult(
+                    success=True,
+                    probe_used="SELECT 1",
+                    check_duration=0.1,
+                    dialect="sqlite",
+                ),
+            ):
+                stored, check_result = verify_and_store_connection(
+                    vault_store=vault,
+                    alias="test",
+                    jdbc_url="sqlite:///./test.db",
+                    skip_check=False,
+                    force_save=False,
+                )
+
+                assert stored is True
+                assert check_result is not None
+                assert check_result.success is True
+                assert check_result.unverified is False
+
+    def test_store_with_failed_check_no_force(self, tmp_path, monkeypatch):
+        """Failed check without force_save should not store."""
+        import securedblink.vault.store as store_module
+
+        mock_vault = MagicMock()
+
+        with (
+            patch.object(
+                store_module, "INDEX_FILE", tmp_path / "aliases.json"
+            ),
+            patch.object(store_module, "INDEX_DIR", tmp_path),
+            patch("keyring.set_password"),
+            patch("keyring.get_password", return_value=None),
+        ):
+            store_module._vault_store = None
+            from securedblink.vault.store import VaultStore
+
+            vault = VaultStore()
+
+            # Mock failed check
+            with patch(
+                "securedblink.vault.check.check_connection_reachability",
+                return_value=ConnectionCheckResult(
+                    success=False,
+                    error="Connection failed",
+                    error_type="OperationalError",
+                    probe_used="SELECT 1",
+                    check_duration=0.1,
+                    dialect="postgresql",
+                ),
+            ):
+                stored, check_result = verify_and_store_connection(
+                    vault_store=vault,
+                    alias="test",
+                    jdbc_url="postgresql://user:pass@invalid-host/db",
+                    skip_check=False,
+                    force_save=False,
+                )
+
+                assert stored is False
+                assert check_result is not None
+                assert check_result.success is False
+                # Vault.set should not have been called
+                mock_vault.set.assert_not_called()
+
+    def test_store_with_failed_check_with_force(self, tmp_path, monkeypatch):
+        """Failed check with force_save should store and mark as unverified."""
+        import securedblink.vault.store as store_module
+
+        with (
+            patch.object(
+                store_module, "INDEX_FILE", tmp_path / "aliases.json"
+            ),
+            patch.object(store_module, "INDEX_DIR", tmp_path),
+            patch("keyring.set_password"),
+            patch("keyring.get_password", return_value=None),
+        ):
+            store_module._vault_store = None
+            from securedblink.vault.store import VaultStore
+
+            vault = VaultStore()
+
+            # Mock failed check
+            with patch(
+                "securedblink.vault.check.check_connection_reachability",
+                return_value=ConnectionCheckResult(
+                    success=False,
+                    error="Connection failed",
+                    error_type="OperationalError",
+                    probe_used="SELECT 1",
+                    check_duration=0.1,
+                    dialect="postgresql",
+                ),
+            ):
+                stored, check_result = verify_and_store_connection(
+                    vault_store=vault,
+                    alias="test",
+                    jdbc_url="postgresql://user:pass@invalid-host/db",
+                    skip_check=False,
+                    force_save=True,
+                )
+
+                assert stored is True
+                assert check_result is not None
+                assert check_result.success is False
+                assert check_result.unverified is True
+
+    def test_skip_check_stores_without_verification(self, tmp_path, monkeypatch):
+        """Skip check should store without performing verification."""
+        import securedblink.vault.store as store_module
+
+        with (
+            patch.object(
+                store_module, "INDEX_FILE", tmp_path / "aliases.json"
+            ),
+            patch.object(store_module, "INDEX_DIR", tmp_path),
+            patch("keyring.set_password"),
+            patch("keyring.get_password", return_value=None),
+        ):
+            store_module._vault_store = None
+            from securedblink.vault.store import VaultStore
+
+            vault = VaultStore()
+
+            with patch(
+                "securedblink.vault.check.check_connection_reachability"
+            ) as mock_check:
+                stored, check_result = verify_and_store_connection(
+                    vault_store=vault,
+                    alias="test",
+                    jdbc_url="sqlite:///./test.db",
+                    skip_check=True,
+                    force_save=False,
+                )
+
+                # Check should not have been called
+                mock_check.assert_not_called()
+                assert stored is True
+                assert check_result is None
+
+    def test_skip_check_via_env_var(self, tmp_path, monkeypatch):
+        """Skip check via environment variable should work."""
+        import securedblink.vault.store as store_module
+
+        monkeypatch.setenv("SECUREDBLINK_SKIP_CONNECT_CHECK", "1")
+
+        with (
+            patch.object(
+                store_module, "INDEX_FILE", tmp_path / "aliases.json"
+            ),
+            patch.object(store_module, "INDEX_DIR", tmp_path),
+            patch("keyring.set_password"),
+            patch("keyring.get_password", return_value=None),
+        ):
+            store_module._vault_store = None
+            from securedblink.vault.store import VaultStore
+
+            vault = VaultStore()
+
+            with patch(
+                "securedblink.vault.check.check_connection_reachability"
+            ) as mock_check:
+                stored, check_result = verify_and_store_connection(
+                    vault_store=vault,
+                    alias="test",
+                    jdbc_url="sqlite:///./test.db",
+                    skip_check=False,  # Not explicitly set, but env var should override
+                    force_save=False,
+                )
+
+                # Check should not have been called due to env var
+                mock_check.assert_not_called()
+                assert stored is True
+                assert check_result is None
+
+    def test_overwrite_existing_alias(self, tmp_path, monkeypatch):
+        """Overwrite should work with successful check."""
+        import securedblink.vault.store as store_module
+
+        index_file = tmp_path / "aliases.json"
+        index_file.write_text(json.dumps({"test": {"created_at": "2024-01-01", "source": "direct"}}))
+
+        with (
+            patch.object(store_module, "INDEX_FILE", index_file),
+            patch.object(store_module, "INDEX_DIR", tmp_path),
+            patch("keyring.set_password"),
+            patch("keyring.get_password", return_value=None),
+        ):
+            store_module._vault_store = None
+            from securedblink.vault.store import VaultStore
+
+            vault = VaultStore()
+
+            with patch(
+                "securedblink.vault.check.check_connection_reachability",
+                return_value=ConnectionCheckResult(
+                    success=True,
+                    probe_used="SELECT 1",
+                    check_duration=0.1,
+                    dialect="sqlite",
+                ),
+            ):
+                stored, check_result = verify_and_store_connection(
+                    vault_store=vault,
+                    alias="test",
+                    jdbc_url="sqlite:///./new.db",
+                    overwrite=True,
+                    skip_check=False,
+                    force_save=False,
+                )
+
+                assert stored is True
+                assert check_result.success is True
+
+
+# ---------------------------------------------------------------------------
+# Integration Tests with Real SQLite Database
+# ---------------------------------------------------------------------------
+
+
+class TestIntegrationWithRealDatabase:
+    """Integration tests using real SQLite database."""
+
+    def test_check_with_real_sqlite_database(self, tmp_path):
+        """Check should succeed with a real SQLite database file."""
+        db_file = tmp_path / "test.db"
+        db_url = f"sqlite:///{db_file}"
+
+        # Create the database file
+        engine = create_engine(db_url)
+        with engine.begin() as conn:
+            conn.execute(text("CREATE TABLE test (id INTEGER)"))
+
+        # Now check the connection
+        result = check_connection_reachability(db_url)
+        assert result.success is True
+        assert result.dialect == "sqlite"
+
+    def test_check_with_memory_sqlite(self):
+        """Check should succeed with in-memory SQLite."""
+        # Note: We need to use a shared memory URL for the check to work
+        result = check_connection_reachability("sqlite:///:memory:")
+        assert result.success is True
+        assert result.dialect == "sqlite"
+
+    def test_check_with_nonexistent_sqlite_file(self, tmp_path):
+        """Check should succeed with non-existent SQLite file (SQLite creates it).
+        
+        Note: SQLite automatically creates the database file if it doesn't exist,
+        so this test verifies that the check works even when the file doesn't exist yet.
+        """
+        db_url = f"sqlite:///{tmp_path / 'nonexistent.db'}"
+        result = check_connection_reachability(db_url)
+        # SQLite will create the file, so this should succeed
+        assert result.success is True
+        assert result.dialect == "sqlite"
+
+
+# ---------------------------------------------------------------------------
+# Redaction Tests for Connection Check
+# ---------------------------------------------------------------------------
+
+
+class TestRedactionInConnectionCheck:
+    """Tests for credential redaction in connection check errors."""
+
+    def test_redacted_error_for_invalid_host(self):
+        """Error for invalid host should have redacted credentials."""
+        url = "postgresql://myuser:mypassword@invalid-host:5432/mydb"
+        result = check_connection_reachability(url)
+
+        assert result.success is False
+        if result.error:
+            assert "mypassword" not in result.error
+            assert "myuser" not in result.error or "[REDACTED]" in result.error
+
+    def test_redacted_error_for_url_with_credentials(self):
+        """URL credentials should be redacted in error messages."""
+        url = "mysql://admin:secret123@localhost:3306/test"
+        result = check_connection_reachability(url)
+
+        # Whether it succeeds or fails, credentials should be redacted in errors
+        if result.error:
+            assert "secret123" not in result.error
+            assert "[REDACTED]" in result.error or "admin" not in result.error
+
+    def test_redact_exception_directly(self):
+        """Test the redact_exception function directly."""
+        # Create an exception with credentials in the message
+        try:
+            raise ValueError(
+                "Connection failed: postgresql://user:password@host/db"
+            )
+        except ValueError as e:
+            redacted = redact_exception(e)
+            assert "password" not in redacted
+            assert "[REDACTED]" in redacted
+
+
+# ---------------------------------------------------------------------------
+# Timeout Tests
+# ---------------------------------------------------------------------------
+
+
+class TestTimeoutHandling:
+    """Tests for timeout handling in connection checks."""
+
+    def test_timeout_via_parameter(self, sqlite_engine):
+        """Custom timeout via parameter should be respected."""
+        url = str(sqlite_engine.url)
+        start = time.time()
+        result = check_connection_reachability(url, timeout=0.5)
+        duration = time.time() - start
+
+        assert result.success is True
+        # Should complete within timeout
+        assert duration < 1.0
+
+    def test_default_timeout_used_when_not_specified(self, sqlite_engine):
+        """Default timeout should be used when not specified."""
+        url = str(sqlite_engine.url)
+        result = check_connection_reachability(url)
+
+        assert result.success is True
+        assert result.check_duration < 10  # Should be much less than default 5s
+
+
+# ---------------------------------------------------------------------------
+# Edge Cases and Error Handling
+# ---------------------------------------------------------------------------
+
+
+class TestEdgeCases:
+    """Tests for edge cases and error handling."""
+
+    def test_empty_jdbc_url(self):
+        """Empty JDBC URL should fail gracefully."""
+        result = check_connection_reachability("")
+        assert result.success is False
+        assert result.error is not None
+
+    def test_none_jdbc_url(self):
+        """None JDBC URL should fail gracefully."""
+        result = check_connection_reachability(None)  # type: ignore[arg-type]
+        assert result.success is False
+
+    def test_url_with_special_characters(self):
+        """URL with special characters should be handled."""
+        # This might fail to connect but should not crash
+        result = check_connection_reachability(
+            "postgresql://user%40domain:pass%20word@host/db"
+        )
+        assert result.success is False
+        if result.error:
+            assert "pass%20word" not in result.error or "[REDACTED]" in result.error
+
+    def test_very_long_timeout(self, monkeypatch):
+        """Very long timeout should still work."""
+        monkeypatch.setenv("SECUREDBLINK_CONNECT_CHECK_TIMEOUT", "300")
+        assert _get_timeout() == 300.0
+
+    def test_negative_timeout_falls_back(self, monkeypatch):
+        """Negative timeout should fall back to default."""
+        monkeypatch.setenv("SECUREDBLINK_CONNECT_CHECK_TIMEOUT", "-1")
+        # Should fall back to default
+        timeout = _get_timeout()
+        assert timeout == DEFAULT_CHECK_TIMEOUT  # Should fall back to default

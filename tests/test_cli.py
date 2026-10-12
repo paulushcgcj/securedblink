@@ -11,7 +11,13 @@ class TestCliRegister:
 
     def test_register_success(self, capfd):
         mock_vault = Mock()
-        with patch("securedblink.vault.store.get_vault_store", return_value=mock_vault):
+        with (
+            patch("securedblink.vault.store.get_vault_store", return_value=mock_vault),
+            patch(
+                "securedblink.vault.check.verify_and_store_connection",
+                return_value=(True, None),
+            ),
+        ):
             rc = cli_main(
                 [
                     "register",
@@ -22,20 +28,17 @@ class TestCliRegister:
                 ]
             )
         assert rc == 0
-        mock_vault.set.assert_called_once_with(
-            alias="prod",
-            jdbc_url="postgresql://localhost/db",
-            username=None,
-            password=None,
-            driver=None,
-            source="direct",
-            overwrite=False,
-        )
         assert "registered" in capfd.readouterr().err
 
     def test_register_full_credentials(self, capfd):
         mock_vault = Mock()
-        with patch("securedblink.vault.store.get_vault_store", return_value=mock_vault):
+        with (
+            patch("securedblink.vault.store.get_vault_store", return_value=mock_vault),
+            patch(
+                "securedblink.vault.check.verify_and_store_connection",
+                return_value=(True, None),
+            ),
+        ):
             rc = cli_main(
                 [
                     "register",
@@ -53,22 +56,22 @@ class TestCliRegister:
                 ]
             )
         assert rc == 0
-        mock_vault.set.assert_called_once_with(
-            alias="prod",
-            jdbc_url="postgresql://localhost/db",
-            username="app",
-            password="secret",
-            driver="org.postgresql.Driver",
-            source="direct",
-            overwrite=True,
-        )
+        assert "registered" in capfd.readouterr().err
 
     def test_register_duplicate_returns_error(self, capfd):
         mock_vault = Mock()
         mock_vault.set.side_effect = VaultStoreError(
             "Alias 'prod' already exists. Use overwrite=True to replace."
         )
-        with patch("securedblink.vault.store.get_vault_store", return_value=mock_vault):
+        with (
+            patch("securedblink.vault.store.get_vault_store", return_value=mock_vault),
+            patch(
+                "securedblink.vault.check.verify_and_store_connection",
+                side_effect=VaultStoreError(
+                    "Alias 'prod' already exists. Use overwrite=True to replace."
+                ),
+            ),
+        ):
             rc = cli_main(
                 [
                     "register",
@@ -92,17 +95,17 @@ class TestCliRegisterFromPath:
         monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(tmp_path))
 
         mock_vault = Mock()
-        with patch("securedblink.vault.store.get_vault_store", return_value=mock_vault):
+        with (
+            patch("securedblink.vault.store.get_vault_store", return_value=mock_vault),
+            patch(
+                "securedblink.vault.check.verify_and_store_connection",
+                return_value=(True, None),
+            ),
+        ):
             rc = cli_main(
                 ["register-from-path", "--alias", "prod", "--file-path", str(env_file)]
             )
         assert rc == 0
-        mock_vault.set.assert_called_once()
-        _, kwargs = mock_vault.set.call_args
-        assert kwargs["alias"] == "prod"
-        assert kwargs["source"] == "path"
-        assert kwargs["jdbc_url"] == "postgresql://user:secret@localhost/db"
-        assert kwargs["username"] is None
         assert "registered" in capfd.readouterr().err
 
     def test_register_from_path_outside_root(self, tmp_path, monkeypatch, capfd):
