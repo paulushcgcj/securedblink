@@ -186,15 +186,25 @@ def vault_register_connection(
         )
 
         if stored:
+            # The vault now holds different credentials than any engine already
+            # built for this alias. Dispose the cached pool so the change takes
+            # effect at once instead of on next lookup.
+            disposed = _db.invalidate(alias)
             if check_result is None:
                 # Check was skipped
-                return {"alias": alias, "status": "registered", "check_skipped": True}
+                return {
+                    "alias": alias,
+                    "status": "registered",
+                    "check_skipped": True,
+                    "engines_disposed": disposed,
+                }
             elif check_result.unverified:
                 # Force saved after failed check
                 return {
                     "alias": alias,
                     "status": "registered_unverified",
                     "check_result": check_result.to_dict(),
+                    "engines_disposed": disposed,
                 }
             else:
                 # Check passed and stored
@@ -202,6 +212,7 @@ def vault_register_connection(
                     "alias": alias,
                     "status": "registered",
                     "check_result": check_result.to_dict(),
+                    "engines_disposed": disposed,
                 }
         else:
             # Check failed and not stored
@@ -294,15 +305,24 @@ def vault_register_from_path(
         )
 
         if stored:
+            # See vault_register_connection: an overwrite can leave a cached
+            # engine holding credentials that are no longer in the vault.
+            disposed = _db.invalidate(alias)
             if check_result is None:
                 # Check was skipped
-                return {"alias": alias, "status": "registered", "check_skipped": True}
+                return {
+                    "alias": alias,
+                    "status": "registered",
+                    "check_skipped": True,
+                    "engines_disposed": disposed,
+                }
             elif check_result.unverified:
                 # Force saved after failed check
                 return {
                     "alias": alias,
                     "status": "registered_unverified",
                     "check_result": check_result.to_dict(),
+                    "engines_disposed": disposed,
                 }
             else:
                 # Check passed and stored
@@ -310,6 +330,7 @@ def vault_register_from_path(
                     "alias": alias,
                     "status": "registered",
                     "check_result": check_result.to_dict(),
+                    "engines_disposed": disposed,
                 }
         else:
             # Check failed and not stored
@@ -381,14 +402,35 @@ def vault_revoke(alias: str) -> dict[str, Any]:
         alias: The alias to remove
 
     Returns:
-        {"alias": alias, "status": "revoked", "existed": bool}
+        {"alias": alias, "status": "revoked", "existed": bool,
+         "engines_disposed": int}
+
+        When the secret could not be removed from the credential manager,
+        status is "revoke_incomplete" and an "error" explains what survived.
     """
     existed = _vault.exists(alias)
-    _vault.delete(alias)
+    try:
+        _vault.delete(alias)
+    except VaultStoreError as e:
+        # The index entry is gone but the secret survived in the credential
+        # manager. Dispose the engine on this path too: the alias must stop
+        # resolving even though the revocation is only partially complete.
+        disposed = _db.invalidate(alias)
+        log.warning("vault_revoke_incomplete", alias=alias, engines_disposed=disposed)
+        return {
+            "alias": alias,
+            "status": "revoke_incomplete",
+            "existed": existed,
+            "engines_disposed": disposed,
+            "error": redact_exception(e),
+        }
+
+    disposed = _db.invalidate(alias)
     return {
         "alias": alias,
         "status": "revoked",
         "existed": existed,
+        "engines_disposed": disposed,
     }
 
 
@@ -455,10 +497,16 @@ def vault_update_connection(
             driver=driver,
         )
 
+        # A partial update changes the credentials the cached engine was built
+        # with, so drop it. Without this the rotated password would not be used
+        # until the server restarted.
+        disposed = _db.invalidate(alias)
+
         return {
             "alias": alias,
             "status": "updated",
             "fields_updated": fields_updated,
+            "engines_disposed": disposed,
         }
 
     except VaultStoreError as e:

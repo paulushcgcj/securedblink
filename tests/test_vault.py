@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from keyring.errors import KeyringError
+from keyring.errors import KeyringError, PasswordDeleteError
 
 from securedblink.vault.parsers import (
     ConnectionConfig,
@@ -813,7 +813,14 @@ class TestVaultStore:
                 "jdbc_url": "sqlite:///db"
             }
 
-    def test_store_delete_ignores_keyring_error(self, tmp_path):
+    def test_store_delete_surfaces_keyring_failure(self, tmp_path):
+        """A failed secret deletion must not read as a clean revocation.
+
+        The index entry is still removed so the alias stops resolving, but the
+        caller has to learn that the credential survived in the keyring and
+        needs rotating. Silently returning True here is what let a revoked
+        alias keep a recoverable secret behind.
+        """
         import securedblink.vault.store as store_module
 
         index_dir = tmp_path / ".securedblink"
@@ -829,7 +836,36 @@ class TestVaultStore:
             ),
         ):
             store = store_module.VaultStore()
+            with pytest.raises(
+                store_module.VaultStoreError, match="could not be deleted"
+            ):
+                store.delete("PROD")
+            # De-listed regardless, so the alias stops resolving.
+            assert "prod" not in store.list_aliases()
+
+    def test_store_delete_treats_absent_secret_as_benign(self, tmp_path):
+        """No matching entry in the keyring is not a failure.
+
+        Backends signal that with PasswordDeleteError, which has to stay
+        distinguishable from a locked or unusable backend.
+        """
+        import securedblink.vault.store as store_module
+
+        index_dir = tmp_path / ".securedblink"
+        index_dir.mkdir()
+        index_file = index_dir / "aliases.json"
+        index_file.write_text(json.dumps({"prod": {"source": "direct"}}))
+        with (
+            patch.object(store_module, "INDEX_FILE", index_file),
+            patch.object(store_module, "INDEX_DIR", index_dir),
+            patch(
+                "keyring.delete_password",
+                side_effect=PasswordDeleteError,
+            ),
+        ):
+            store = store_module.VaultStore()
             assert store.delete("PROD") is True
+            assert "prod" not in store.list_aliases()
 
     def test_store_index_load_and_save_failures(self, tmp_path):
         import securedblink.vault.store as store_module
