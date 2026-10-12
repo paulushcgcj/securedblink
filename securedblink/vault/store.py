@@ -309,6 +309,70 @@ class VaultStore:
         }
         self._save_index()
 
+    def update(
+        self,
+        alias: str,
+        jdbc_url: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
+        driver: str | None = None,
+    ) -> None:
+        """Update specific fields of an existing connection configuration.
+
+        This allows partial updates to an existing vault connection. Only the
+        provided fields will be updated; all other fields remain unchanged.
+        To remove a field (e.g., clear the password), pass an empty string or None.
+
+        Args:
+            alias: The alias to update
+            jdbc_url: New JDBC URL (optional, if not provided, URL stays the same)
+            username: New username (optional, if not provided, username stays the same)
+            password: New password (optional, if not provided, password stays the same)
+            driver: New driver (optional, if not provided, driver stays the same)
+
+        Raises:
+            VaultStoreError: If the alias doesn't exist
+        """
+        # Normalize alias to lowercase
+        alias = alias.lower()
+
+        # Check if alias exists
+        if alias not in self._index:
+            raise VaultStoreError(
+                f"Alias '{alias}' does not exist. Use set() to create."
+            )
+
+        # Get existing config
+        existing_config = self.get(alias)
+        if existing_config is None:
+            raise VaultStoreError(
+                f"Alias '{alias}' exists in index but has no stored config."
+            )
+
+        # Build updated config by merging existing with new values
+        updated_config = dict(existing_config)
+
+        # Update only the fields that are provided
+        if jdbc_url is not None:
+            updated_config["jdbc_url"] = jdbc_url
+        if username is not None:
+            updated_config["username"] = username
+        if password is not None:
+            updated_config["password"] = password
+        if driver is not None:
+            updated_config["driver"] = driver
+
+        # Store the updated config
+        creds_json = json.dumps(updated_config)
+        keyring.set_password(_SERVICE_NAME, alias, creds_json)
+
+        # Update index (keep existing metadata but update timestamp)
+        if alias in self._index:
+            self._index[alias]["updated_at"] = datetime.datetime.now(
+                datetime.UTC
+            ).isoformat()
+            self._save_index()
+
     def delete(self, alias: str) -> bool:
         """Delete a connection configuration.
 

@@ -9,6 +9,7 @@ Tools:
   execute_mutation         execute after user confirms (requires token)
   vault_register_connection register a connection with credentials in the vault
   vault_register_from_path register a connection from a config file in the vault
+  vault_update_connection   update specific fields of an existing vault connection
   vault_list               list all registered vault aliases
   vault_revoke             remove a connection from the vault
 """
@@ -389,6 +390,97 @@ def vault_revoke(alias: str) -> dict[str, Any]:
         "status": "revoked",
         "existed": existed,
     }
+
+
+@mcp.tool()
+def vault_update_connection(
+    alias: str,
+    jdbc_url: str | None = None,
+    username: str | None = None,
+    password: str | None = None,
+    driver: str | None = None,
+) -> dict[str, Any]:
+    """Update specific fields of an existing vault connection.
+
+    Allows partial updates to an existing connection configuration. Only the
+    provided fields will be updated; all other fields remain unchanged.
+    To clear a field (e.g., remove a stored password), pass an empty string.
+
+    Args:
+        alias: The alias of the existing connection to update
+        jdbc_url: New JDBC URL (optional)
+        username: New username (optional)
+        password: New password (optional)
+        driver: New driver (optional)
+
+    Returns:
+        {"alias": alias, "status": "updated", "fields_updated": list[str]}
+
+    Raises:
+        VaultStoreError: If the alias doesn't exist
+
+    Note:
+        Credentials are NEVER returned in responses, logs, or error messages.
+        Use vault_list to see registered aliases.
+    """
+    try:
+        # Track which fields are being updated
+        fields_updated: list[str] = []
+
+        # Get current config to determine what's being changed
+        current_config = _vault.get(alias)
+        if current_config is None:
+            return {
+                "alias": alias,
+                "status": "failed",
+                "error": f"Alias '{alias}' does not exist.",
+            }
+
+        # Determine which fields are being updated
+        if jdbc_url is not None:
+            fields_updated.append("jdbc_url")
+        if username is not None:
+            fields_updated.append("username")
+        if password is not None:
+            fields_updated.append("password")
+        if driver is not None:
+            fields_updated.append("driver")
+
+        # Perform the update
+        _vault.update(
+            alias=alias,
+            jdbc_url=jdbc_url,
+            username=username,
+            password=password,
+            driver=driver,
+        )
+
+        return {
+            "alias": alias,
+            "status": "updated",
+            "fields_updated": fields_updated,
+        }
+
+    except VaultStoreError as e:
+        # Log only the error class + alias — never str(e), which may embed
+        # credentials from the JDBC URL.
+        log.warning(
+            "vault_update_connection_failed", alias=alias, error_type=type(e).__name__
+        )
+        return {
+            "alias": alias,
+            "status": "failed",
+            "error": f"Failed to update connection: {type(e).__name__}",
+        }
+    except (InsecureKeyringError, ValueError, OSError) as e:
+        log.warning(
+            "vault_update_connection_failed", alias=alias, error_type=type(e).__name__
+        )
+        return {
+            "alias": alias,
+            "status": "failed",
+            "error": f"Failed to update connection: {type(e).__name__}",
+        }
 
 
 # ---------------------------------------------------------------------------

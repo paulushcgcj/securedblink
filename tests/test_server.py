@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, text
 
 import securedblink.server as srv
 from securedblink.connections import ConnectionManager
+from securedblink.vault.store import VaultStoreError
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -467,6 +468,53 @@ class TestVaultTools:
         assert listed["aliases"][0]["created_at"] == "unknown"
         assert revoked == {"alias": "prod", "status": "revoked", "existed": True}
         vault.delete.assert_called_once_with("prod")
+
+    def test_vault_update_connection_success(self):
+        vault = MagicMock()
+        vault.get.return_value = {
+            "jdbc_url": "postgresql://old/db",
+            "username": "olduser",
+            "password": "oldpass",
+        }
+        with patch.object(srv, "_vault", vault):
+            result = srv.vault_update_connection(
+                "prod",
+                jdbc_url="postgresql://new/db",
+                username="newuser",
+            )
+        assert result["alias"] == "prod"
+        assert result["status"] == "updated"
+        assert "jdbc_url" in result["fields_updated"]
+        assert "username" in result["fields_updated"]
+        vault.update.assert_called_once()
+        call_kwargs = vault.update.call_args.kwargs
+        assert call_kwargs["alias"] == "prod"
+        assert call_kwargs["jdbc_url"] == "postgresql://new/db"
+        assert call_kwargs["username"] == "newuser"
+        assert call_kwargs["password"] is None
+        assert call_kwargs["driver"] is None
+
+    def test_vault_update_connection_nonexistent(self):
+        vault = MagicMock()
+        vault.get.return_value = None
+        with patch.object(srv, "_vault", vault):
+            result = srv.vault_update_connection(
+                "nonexistent", jdbc_url="postgresql://new/db"
+            )
+        assert result["alias"] == "nonexistent"
+        assert result["status"] == "failed"
+        assert "does not exist" in result["error"]
+        vault.update.assert_not_called()
+
+    def test_vault_update_connection_error(self):
+        vault = MagicMock()
+        vault.get.return_value = {"jdbc_url": "postgresql://host/db"}
+        vault.update.side_effect = VaultStoreError("test error")
+        with patch.object(srv, "_vault", vault):
+            result = srv.vault_update_connection("prod", jdbc_url="postgresql://new/db")
+        assert result["alias"] == "prod"
+        assert result["status"] == "failed"
+        assert "Failed to update connection" in result["error"]
 
 
 def test_fastmcp_settings_forward_refs_resolved():

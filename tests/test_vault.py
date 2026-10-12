@@ -954,3 +954,261 @@ class TestVaultStore:
         ):
             with pytest.raises(store_module.InsecureKeyringError, match="fake.Keyring"):
                 store_module.verify_secure_backend()
+
+
+# ---------------------------------------------------------------------------
+# VaultStore.update() Tests
+# ---------------------------------------------------------------------------
+
+
+class TestVaultStoreUpdate:
+    """Tests for VaultStore.update() method - partial connection updates."""
+
+    def test_update_nonexistent_alias_raises(self):
+        import securedblink.vault.store as store_module
+
+        store = store_module.VaultStore()
+        with pytest.raises(store_module.VaultStoreError, match="does not exist"):
+            store.update("nonexistent", jdbc_url="postgresql://new")
+
+    def test_update_jdbc_url_only(self, tmp_path):
+        import securedblink.vault.store as store_module
+
+        index_dir = tmp_path / ".securedblink"
+        index_dir.mkdir()
+        index_file = index_dir / "aliases.json"
+        index_file.write_text(json.dumps({"prod": {"source": "direct"}}))
+
+        with (
+            patch.object(store_module, "INDEX_FILE", index_file),
+            patch.object(store_module, "INDEX_DIR", index_dir),
+            patch("keyring.get_password") as get_password,
+            patch("keyring.set_password") as set_password,
+        ):
+            # Set up existing connection
+            get_password.return_value = json.dumps(
+                {
+                    "jdbc_url": "postgresql://old",
+                    "username": "user",
+                    "password": "pass",
+                }
+            )
+
+            store = store_module.VaultStore()
+            store.update("prod", jdbc_url="postgresql://new")
+
+            # Verify set_password was called with updated config
+            assert set_password.call_count == 1
+            call_args = json.loads(set_password.call_args.args[2])
+            assert call_args["jdbc_url"] == "postgresql://new"
+            assert call_args["username"] == "user"
+            assert call_args["password"] == "pass"
+
+    def test_update_username_only(self, tmp_path):
+        import securedblink.vault.store as store_module
+
+        index_dir = tmp_path / ".securedblink"
+        index_dir.mkdir()
+        index_file = index_dir / "aliases.json"
+        index_file.write_text(json.dumps({"prod": {"source": "direct"}}))
+
+        with (
+            patch.object(store_module, "INDEX_FILE", index_file),
+            patch.object(store_module, "INDEX_DIR", index_dir),
+            patch("keyring.get_password") as get_password,
+            patch("keyring.set_password") as set_password,
+        ):
+            get_password.return_value = json.dumps(
+                {
+                    "jdbc_url": "postgresql://host/db",
+                    "username": "olduser",
+                    "password": "pass",
+                }
+            )
+
+            store = store_module.VaultStore()
+            store.update("prod", username="newuser")
+
+            call_args = json.loads(set_password.call_args.args[2])
+            assert call_args["jdbc_url"] == "postgresql://host/db"
+            assert call_args["username"] == "newuser"
+            assert call_args["password"] == "pass"
+
+    def test_update_password_only(self, tmp_path):
+        import securedblink.vault.store as store_module
+
+        index_dir = tmp_path / ".securedblink"
+        index_dir.mkdir()
+        index_file = index_dir / "aliases.json"
+        index_file.write_text(json.dumps({"prod": {"source": "direct"}}))
+
+        with (
+            patch.object(store_module, "INDEX_FILE", index_file),
+            patch.object(store_module, "INDEX_DIR", index_dir),
+            patch("keyring.get_password") as get_password,
+            patch("keyring.set_password") as set_password,
+        ):
+            get_password.return_value = json.dumps(
+                {
+                    "jdbc_url": "postgresql://host/db",
+                    "username": "user",
+                    "password": "oldpass",
+                }
+            )
+
+            store = store_module.VaultStore()
+            store.update("prod", password="newpass")
+
+            call_args = json.loads(set_password.call_args.args[2])
+            assert call_args["jdbc_url"] == "postgresql://host/db"
+            assert call_args["username"] == "user"
+            assert call_args["password"] == "newpass"
+
+    def test_update_driver_only(self, tmp_path):
+        import securedblink.vault.store as store_module
+
+        index_dir = tmp_path / ".securedblink"
+        index_dir.mkdir()
+        index_file = index_dir / "aliases.json"
+        index_file.write_text(json.dumps({"prod": {"source": "direct"}}))
+
+        with (
+            patch.object(store_module, "INDEX_FILE", index_file),
+            patch.object(store_module, "INDEX_DIR", index_dir),
+            patch("keyring.get_password") as get_password,
+            patch("keyring.set_password") as set_password,
+        ):
+            get_password.return_value = json.dumps(
+                {
+                    "jdbc_url": "postgresql://host/db",
+                    "driver": "old_driver",
+                }
+            )
+
+            store = store_module.VaultStore()
+            store.update("prod", driver="new_driver")
+
+            call_args = json.loads(set_password.call_args.args[2])
+            assert call_args["jdbc_url"] == "postgresql://host/db"
+            assert call_args["driver"] == "new_driver"
+
+    def test_update_multiple_fields(self, tmp_path):
+        import securedblink.vault.store as store_module
+
+        index_dir = tmp_path / ".securedblink"
+        index_dir.mkdir()
+        index_file = index_dir / "aliases.json"
+        index_file.write_text(json.dumps({"prod": {"source": "direct"}}))
+
+        with (
+            patch.object(store_module, "INDEX_FILE", index_file),
+            patch.object(store_module, "INDEX_DIR", index_dir),
+            patch("keyring.get_password") as get_password,
+            patch("keyring.set_password") as set_password,
+        ):
+            get_password.return_value = json.dumps(
+                {
+                    "jdbc_url": "postgresql://old/db",
+                    "username": "olduser",
+                    "password": "oldpass",
+                    "driver": "old_driver",
+                }
+            )
+
+            store = store_module.VaultStore()
+            store.update(
+                "prod",
+                jdbc_url="postgresql://new/db",
+                username="newuser",
+                driver="new_driver",
+            )
+
+            call_args = json.loads(set_password.call_args.args[2])
+            assert call_args["jdbc_url"] == "postgresql://new/db"
+            assert call_args["username"] == "newuser"
+            assert call_args["password"] == "oldpass"  # Not updated
+            assert call_args["driver"] == "new_driver"
+
+    def test_update_adds_updated_at_to_index(self, tmp_path):
+        import securedblink.vault.store as store_module
+
+        index_dir = tmp_path / ".securedblink"
+        index_dir.mkdir()
+        index_file = index_dir / "aliases.json"
+        index_file.write_text(
+            json.dumps(
+                {"prod": {"created_at": "2024-01-01T00:00:00", "source": "direct"}}
+            )
+        )
+
+        with (
+            patch.object(store_module, "INDEX_FILE", index_file),
+            patch.object(store_module, "INDEX_DIR", index_dir),
+            patch("keyring.get_password") as get_password,
+            patch("keyring.set_password"),
+        ):
+            get_password.return_value = json.dumps({"jdbc_url": "postgresql://host/db"})
+
+            store = store_module.VaultStore()
+            store.update("prod", jdbc_url="postgresql://new/db")
+
+            # Reload index and check updated_at was added
+            saved_index = json.loads(index_file.read_text())
+            assert "updated_at" in saved_index["prod"]
+            assert "created_at" in saved_index["prod"]
+
+    def test_update_preserves_existing_fields_when_none_passed(self, tmp_path):
+        import securedblink.vault.store as store_module
+
+        index_dir = tmp_path / ".securedblink"
+        index_dir.mkdir()
+        index_file = index_dir / "aliases.json"
+        index_file.write_text(json.dumps({"prod": {"source": "direct"}}))
+
+        with (
+            patch.object(store_module, "INDEX_FILE", index_file),
+            patch.object(store_module, "INDEX_DIR", index_dir),
+            patch("keyring.get_password") as get_password,
+            patch("keyring.set_password") as set_password,
+        ):
+            get_password.return_value = json.dumps(
+                {
+                    "jdbc_url": "postgresql://host/db",
+                    "username": "user",
+                    "password": "pass",
+                    "driver": "driver",
+                }
+            )
+
+            store = store_module.VaultStore()
+            # Call update with no arguments (all None)
+            store.update("prod")
+
+            # All fields should be preserved
+            call_args = json.loads(set_password.call_args.args[2])
+            assert call_args["jdbc_url"] == "postgresql://host/db"
+            assert call_args["username"] == "user"
+            assert call_args["password"] == "pass"
+            assert call_args["driver"] == "driver"
+
+    def test_update_case_insensitive_alias(self, tmp_path):
+        import securedblink.vault.store as store_module
+
+        index_dir = tmp_path / ".securedblink"
+        index_dir.mkdir()
+        index_file = index_dir / "aliases.json"
+        index_file.write_text(json.dumps({"prod": {"source": "direct"}}))
+
+        with (
+            patch.object(store_module, "INDEX_FILE", index_file),
+            patch.object(store_module, "INDEX_DIR", index_dir),
+            patch("keyring.get_password") as get_password,
+            patch("keyring.set_password") as set_password,
+        ):
+            get_password.return_value = json.dumps({"jdbc_url": "postgresql://host/db"})
+
+            store = store_module.VaultStore()
+            # Should work with uppercase alias
+            store.update("PROD", jdbc_url="postgresql://new/db")
+
+            assert set_password.call_count == 1
