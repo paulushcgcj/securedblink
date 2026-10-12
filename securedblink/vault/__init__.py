@@ -22,6 +22,11 @@ Configuration:
   path-based registration: SECUREDBLINK_ALLOWED_ROOTS=/path/to/configs:/another/path
 """
 
+from securedblink.vault.check import (
+    ConnectionCheckResult,
+    check_connection_reachability,
+    verify_and_store_connection,
+)
 from securedblink.vault.parsers import (
     ConnectionConfig,
     parse_config_file,
@@ -50,6 +55,10 @@ from securedblink.vault.store import (
 )
 
 __all__ = [
+    # Check
+    "ConnectionCheckResult",
+    "check_connection_reachability",
+    "verify_and_store_connection",
     # Parsers
     "ConnectionConfig",
     # Resolver
