@@ -34,6 +34,7 @@ from securedblink.vault import (
     redact_exception,
     validate_and_get_absolute_path,
     verify_and_store_connection,
+    verify_and_update_connection,
 )
 from securedblink.vault.store import (
     InsecureKeyringError,
@@ -441,6 +442,8 @@ def vault_update_connection(
     username: str | None = None,
     password: str | None = None,
     driver: str | None = None,
+    skip_check: bool = False,
+    force_save: bool = False,
 ) -> dict[str, Any]:
     """Update specific fields of an existing vault connection.
 
@@ -448,18 +451,27 @@ def vault_update_connection(
     provided fields will be updated; all other fields remain unchanged.
     To clear a field (e.g., remove a stored password), pass an empty string.
 
+    Before writing, verifies that the merged configuration (stored values plus
+    the supplied overrides) is reachable, using the same check as registration.
+    A new password paired with a stored username is validated as a whole, so a
+    bad rotation fails here instead of at the next query.
+
     Args:
         alias: The alias of the existing connection to update
         jdbc_url: New JDBC URL (optional)
         username: New username (optional)
         password: New password (optional)
         driver: New driver (optional)
+        skip_check: If True, skip the reachability check (default: False)
+        force_save: If True, update even if the check fails (default: False)
 
     Returns:
-        {"alias": alias, "status": "updated", "fields_updated": list[str]}
-
-    Raises:
-        VaultStoreError: If the alias doesn't exist
+        On success: {"alias": alias, "status": "updated", "fields_updated": [...],
+                     "check_result": {...}, "engines_disposed": int}
+        On check failure (not written): {"alias": alias, "status": "check_failed",
+                     "check_result": {...}, "can_force_save": true}
+        On check failure (force saved): {"alias": alias, "status": "updated_unverified", ...}
+        On other errors: {"alias": alias, "status": "failed", "error": str}
 
     Note:
         Credentials are NEVER returned in responses, logs, or error messages.
@@ -469,7 +481,8 @@ def vault_update_connection(
         # Track which fields are being updated
         fields_updated: list[str] = []
 
-        # Get current config to determine what's being changed
+        # Get current config to determine what's being changed and to build
+        # the merged values the reachability check runs against
         current_config = _vault.get(alias)
         if current_config is None:
             return {
@@ -488,24 +501,53 @@ def vault_update_connection(
         if driver is not None:
             fields_updated.append("driver")
 
-        # Perform the update
-        _vault.update(
+        # Verify the merged config, then update
+        updated, check_result = verify_and_update_connection(
+            vault_store=_vault,
             alias=alias,
+            current_config=current_config,
             jdbc_url=jdbc_url,
             username=username,
             password=password,
             driver=driver,
+            skip_check=skip_check,
+            force_save=force_save,
         )
 
-        # A partial update changes the credentials the cached engine was built
-        # with, so drop it. Without this the rotated password would not be used
-        # until the server restarted.
+        if not updated:
+            # Check failed and not forced: the vault was left untouched
+            return {
+                "alias": alias,
+                "status": "check_failed",
+                "check_result": check_result.to_dict() if check_result else {},
+                "can_force_save": True,
+            }
+
+        # The vault now holds different credentials than any cached engine was
+        # built with. Dispose the pool so the change takes effect at once.
         disposed = _db.invalidate(alias)
 
+        if check_result is None:
+            return {
+                "alias": alias,
+                "status": "updated",
+                "fields_updated": fields_updated,
+                "check_skipped": True,
+                "engines_disposed": disposed,
+            }
+        if check_result.unverified:
+            return {
+                "alias": alias,
+                "status": "updated_unverified",
+                "fields_updated": fields_updated,
+                "check_result": check_result.to_dict(),
+                "engines_disposed": disposed,
+            }
         return {
             "alias": alias,
             "status": "updated",
             "fields_updated": fields_updated,
+            "check_result": check_result.to_dict(),
             "engines_disposed": disposed,
         }
 

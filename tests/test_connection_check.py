@@ -18,6 +18,7 @@ from securedblink.vault.check import (
     _should_skip_check,
     check_connection_reachability,
     verify_and_store_connection,
+    verify_and_update_connection,
 )
 from securedblink.vault.redact import redact_exception
 
@@ -520,6 +521,182 @@ class TestVerifyAndStoreConnection:
 
                 assert stored is True
                 assert check_result.success is True
+
+
+# ---------------------------------------------------------------------------
+# Verify and Update Tests (issue #27)
+# ---------------------------------------------------------------------------
+
+
+class TestVerifyAndUpdateConnection:
+    """Partial updates must validate the merged config before writing."""
+
+    def test_check_runs_against_merged_config(self):
+        """The stored URL and username are combined with the new password.
+
+        Validating only the overridden field would let a new password paired
+        with a stale username pass here and fail at the next query.
+        """
+        vault = MagicMock()
+        current = {
+            "jdbc_url": "sqlite:///:memory:",
+            "username": "stored-user",
+            "password": "stored-pass",
+        }
+        with patch("securedblink.vault.check.check_connection_reachability") as check:
+            check.return_value = ConnectionCheckResult(success=True, dialect="sqlite")
+            updated, result = verify_and_update_connection(
+                vault_store=vault,
+                alias="prod",
+                current_config=current,
+                password="rotated",
+            )
+
+        assert updated is True
+        assert result.success is True
+        args = check.call_args.args
+        assert args[0] == "sqlite:///:memory:"
+        assert args[1] == "stored-user"
+        assert args[2] == "rotated"
+
+    def test_only_overridden_fields_are_written(self):
+        """None overrides are passed through so the store keeps its values."""
+        vault = MagicMock()
+        current = {"jdbc_url": "sqlite:///:memory:", "username": "app"}
+        with patch("securedblink.vault.check.check_connection_reachability") as check:
+            check.return_value = ConnectionCheckResult(success=True, dialect="sqlite")
+            verify_and_update_connection(
+                vault_store=vault,
+                alias="prod",
+                current_config=current,
+                password="rotated",
+            )
+
+        vault.update.assert_called_once()
+        kwargs = vault.update.call_args.kwargs
+        assert kwargs["alias"] == "prod"
+        assert kwargs["password"] == "rotated"
+        assert kwargs["jdbc_url"] is None
+        assert kwargs["username"] is None
+        assert kwargs["driver"] is None
+
+    def test_overridden_url_is_checked_not_the_stored_one(self):
+        vault = MagicMock()
+        current = {"jdbc_url": "sqlite:///stored.db"}
+        with patch("securedblink.vault.check.check_connection_reachability") as check:
+            check.return_value = ConnectionCheckResult(success=True, dialect="sqlite")
+            verify_and_update_connection(
+                vault_store=vault,
+                alias="prod",
+                current_config=current,
+                jdbc_url="sqlite:///replacement.db",
+            )
+        assert check.call_args.args[0] == "sqlite:///replacement.db"
+
+    def test_failed_check_leaves_vault_untouched(self):
+        vault = MagicMock()
+        current = {"jdbc_url": "sqlite:///:memory:"}
+        with patch("securedblink.vault.check.check_connection_reachability") as check:
+            check.return_value = ConnectionCheckResult(
+                success=False, error_type="OperationalError", dialect="sqlite"
+            )
+            updated, result = verify_and_update_connection(
+                vault_store=vault,
+                alias="prod",
+                current_config=current,
+                password="bad",
+            )
+
+        assert updated is False
+        assert result.success is False
+        vault.update.assert_not_called()
+
+    def test_force_save_writes_and_marks_unverified(self):
+        vault = MagicMock()
+        current = {"jdbc_url": "sqlite:///:memory:"}
+        with patch("securedblink.vault.check.check_connection_reachability") as check:
+            check.return_value = ConnectionCheckResult(
+                success=False, error_type="OperationalError", dialect="sqlite"
+            )
+            updated, result = verify_and_update_connection(
+                vault_store=vault,
+                alias="prod",
+                current_config=current,
+                password="bad",
+                force_save=True,
+            )
+
+        assert updated is True
+        assert result.unverified is True
+        vault.update.assert_called_once()
+
+    def test_skip_check_writes_without_verifying(self):
+        vault = MagicMock()
+        current = {"jdbc_url": "sqlite:///:memory:"}
+        with patch("securedblink.vault.check.check_connection_reachability") as check:
+            updated, result = verify_and_update_connection(
+                vault_store=vault,
+                alias="prod",
+                current_config=current,
+                password="rotated",
+                skip_check=True,
+            )
+
+        assert updated is True
+        assert result is None
+        check.assert_not_called()
+        vault.update.assert_called_once()
+
+    def test_skip_check_env_var_is_honoured(self, monkeypatch):
+        vault = MagicMock()
+        current = {"jdbc_url": "sqlite:///:memory:"}
+        monkeypatch.setenv("SECUREDBLINK_SKIP_CONNECT_CHECK", "1")
+        with patch("securedblink.vault.check.check_connection_reachability") as check:
+            updated, result = verify_and_update_connection(
+                vault_store=vault,
+                alias="prod",
+                current_config=current,
+                password="rotated",
+            )
+
+        assert updated is True
+        assert result is None
+        check.assert_not_called()
+
+    def test_missing_url_checks_empty_and_does_not_write(self):
+        """A config with no URL anywhere must not be written on a failed check."""
+        vault = MagicMock()
+        with patch("securedblink.vault.check.check_connection_reachability") as check:
+            check.return_value = ConnectionCheckResult(
+                success=False, error_type="ValueError", dialect=""
+            )
+            updated, _ = verify_and_update_connection(
+                vault_store=vault, alias="prod", current_config={}, password="x"
+            )
+
+        assert updated is False
+        assert check.call_args.args[0] == ""
+        vault.update.assert_not_called()
+
+    def test_end_to_end_update_against_real_sqlite(self, tmp_path):
+        """No mocks: a rotated URL is verified against the real database."""
+        vault = MagicMock()
+        target = tmp_path / "rotated.db"
+        engine = create_engine(f"sqlite:///{target}")
+        with engine.begin() as conn:
+            conn.execute(text("CREATE TABLE marker (label TEXT)"))
+        engine.dispose()
+
+        updated, result = verify_and_update_connection(
+            vault_store=vault,
+            alias="prod",
+            current_config={"jdbc_url": "sqlite:///does-not-exist-anywhere.db"},
+            jdbc_url=f"sqlite:///{target}",
+        )
+
+        assert updated is True
+        assert result.success is True
+        vault.update.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

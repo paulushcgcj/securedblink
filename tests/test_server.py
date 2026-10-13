@@ -400,14 +400,14 @@ class TestVaultTools:
         vault = MagicMock()
         vault.set.side_effect = error
         with patch.object(srv, "_vault", vault):
-            result = srv.vault_register_connection("prod", "sqlite:///db")
+            result = srv.vault_register_connection("prod", "sqlite:///:memory:")
         assert result["status"] == "failed"
         assert result["alias"] == "prod"
         assert result["error"] == str(error)
 
     def test_register_from_path_success(self, tmp_path, monkeypatch):
         config_file = tmp_path / "config.env"
-        config_file.write_text("DB_URL=sqlite:///db\nDB_USERNAME=alice\n")
+        config_file.write_text("DB_URL=sqlite:///:memory:\nDB_USERNAME=alice\n")
         monkeypatch.setenv("SECUREDBLINK_ALLOWED_ROOTS", str(tmp_path))
         vault = MagicMock()
         with (
@@ -488,6 +488,9 @@ class TestVaultTools:
                 "prod",
                 jdbc_url="postgresql://new/db",
                 username="newuser",
+                # Skip the reachability check: this test asserts the field
+                # merge and the store call, not connectivity.
+                skip_check=True,
             )
         assert result["alias"] == "prod"
         assert result["status"] == "updated"
@@ -518,10 +521,60 @@ class TestVaultTools:
         vault.get.return_value = {"jdbc_url": "postgresql://host/db"}
         vault.update.side_effect = VaultStoreError("test error")
         with patch.object(srv, "_vault", vault):
-            result = srv.vault_update_connection("prod", jdbc_url="postgresql://new/db")
+            result = srv.vault_update_connection(
+                "prod", jdbc_url="postgresql://new/db", skip_check=True
+            )
         assert result["alias"] == "prod"
         assert result["status"] == "failed"
         assert "Failed to update connection" in result["error"]
+
+    def test_vault_update_connection_validates_merged_config_by_default(self):
+        """Updates run the #20 check against stored+overrides before writing (#27)."""
+        vault = MagicMock()
+        vault.get.return_value = {"jdbc_url": "postgresql://old/db"}
+        check_result = MagicMock()
+        check_result.to_dict.return_value = {"success": False}
+        manager = MagicMock()
+        with (
+            patch.object(srv, "_vault", vault),
+            patch.object(srv, "_db", manager),
+            patch(
+                "securedblink.server.verify_and_update_connection",
+                return_value=(False, check_result),
+            ) as helper,
+        ):
+            result = srv.vault_update_connection("prod", password="newpass")
+        assert helper.call_args.kwargs["skip_check"] is False
+        assert helper.call_args.kwargs["current_config"] == {
+            "jdbc_url": "postgresql://old/db"
+        }
+        assert result["status"] == "check_failed"
+        assert result["can_force_save"] is True
+        vault.update.assert_not_called()
+        manager.invalidate.assert_not_called()
+
+    def test_vault_update_connection_force_save_marks_unverified(self):
+        vault = MagicMock()
+        vault.get.return_value = {"jdbc_url": "postgresql://old/db"}
+        check_result = MagicMock()
+        check_result.unverified = True
+        check_result.to_dict.return_value = {"success": False, "unverified": True}
+        manager = MagicMock()
+        manager.invalidate.return_value = 1
+        with (
+            patch.object(srv, "_vault", vault),
+            patch.object(srv, "_db", manager),
+            patch(
+                "securedblink.server.verify_and_update_connection",
+                return_value=(True, check_result),
+            ),
+        ):
+            result = srv.vault_update_connection(
+                "prod", password="newpass", force_save=True
+            )
+        assert result["status"] == "updated_unverified"
+        assert result["engines_disposed"] == 1
+        manager.invalidate.assert_called_once_with("prod")
 
 
 def test_fastmcp_settings_forward_refs_resolved():

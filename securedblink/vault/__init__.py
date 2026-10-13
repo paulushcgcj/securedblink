@@ -26,6 +26,7 @@ from securedblink.vault.check import (
     ConnectionCheckResult,
     check_connection_reachability,
     verify_and_store_connection,
+    verify_and_update_connection,
 )
 from securedblink.vault.parsers import (
     ConnectionConfig,
@@ -59,6 +60,7 @@ __all__ = [
     "ConnectionCheckResult",
     "check_connection_reachability",
     "verify_and_store_connection",
+    "verify_and_update_connection",
     # Parsers
     "ConnectionConfig",
     # Resolver

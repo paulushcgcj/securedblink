@@ -325,7 +325,8 @@ class VaultStore:
 
         This allows partial updates to an existing vault connection. Only the
         provided fields will be updated; all other fields remain unchanged.
-        To remove a field (e.g., clear the password), pass an empty string or None.
+        ``None`` means "leave this field as stored"; to remove a field (for
+        example, clear the password) pass an empty string instead.
 
         Args:
             alias: The alias to update

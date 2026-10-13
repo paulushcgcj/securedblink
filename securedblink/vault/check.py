@@ -418,3 +418,100 @@ def verify_and_store_connection(
         error_type=check_result.error_type,
     )
     return False, check_result
+
+
+def verify_and_update_connection(
+    vault_store: Any,
+    alias: str,
+    current_config: dict[str, Any],
+    jdbc_url: str | None = None,
+    username: str | None = None,
+    password: str | None = None,
+    driver: str | None = None,
+    skip_check: bool = False,
+    force_save: bool = False,
+) -> tuple[bool, ConnectionCheckResult | None]:
+    """Verify the merged config is reachable, then apply a partial update.
+
+    The update counterpart of :func:`verify_and_store_connection`. The check
+    runs against the merged result - stored values with the supplied overrides
+    applied - because that is what the next query will use. A new password
+    against a stored username has to fail here, not at query time.
+
+    ``None`` overrides mean "leave the stored value alone", matching
+    :meth:`VaultStore.update`; the caller passes the config it already read so
+    this function does not repeat the keyring lookup.
+
+    Args:
+        vault_store: The VaultStore instance to update
+        alias: The alias of the existing connection
+        current_config: The currently stored config, used to build the merged
+            values the check runs against
+        jdbc_url: New JDBC URL, or None to keep the stored one
+        username: New username, or None to keep the stored one
+        password: New password, or None to keep the stored one
+        driver: New driver, or None to keep the stored one
+        skip_check: If True, skip the reachability check entirely
+        force_save: If True, update even if the check fails
+
+    Returns:
+        Tuple of (updated: bool, check_result: ConnectionCheckResult | None)
+        - updated: True if the vault was written
+        - check_result: The check outcome, or None when the check was skipped.
+          When the check fails and force_save is False the vault is untouched.
+
+    Raises:
+        VaultStoreError: If the alias does not exist, propagated from the store
+    """
+    merged_url = jdbc_url if jdbc_url is not None else current_config.get("jdbc_url")
+    merged_user = username if username is not None else current_config.get("username")
+    merged_pass = password if password is not None else current_config.get("password")
+
+    if skip_check or _should_skip_check():
+        # Update without verification
+        vault_store.update(
+            alias=alias,
+            jdbc_url=jdbc_url,
+            username=username,
+            password=password,
+            driver=driver,
+        )
+        return True, None
+
+    # Check the merged config, not just the overridden fields
+    check_result = check_connection_reachability(
+        merged_url or "", merged_user, merged_pass
+    )
+
+    if check_result.success:
+        vault_store.update(
+            alias=alias,
+            jdbc_url=jdbc_url,
+            username=username,
+            password=password,
+            driver=driver,
+        )
+        return True, check_result
+
+    if force_save:
+        vault_store.update(
+            alias=alias,
+            jdbc_url=jdbc_url,
+            username=username,
+            password=password,
+            driver=driver,
+        )
+        check_result.unverified = True
+        log.info(
+            "connection_updated_unverified",
+            alias=alias,
+            error_type=check_result.error_type,
+        )
+        return True, check_result
+
+    log.warning(
+        "connection_not_updated_check_failed",
+        alias=alias,
+        error_type=check_result.error_type,
+    )
+    return False, check_result
