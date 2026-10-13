@@ -42,7 +42,11 @@ classifiers = [
 ]
 dependencies = [
     "mcp[cli]>=1.0,<2.0.0",
-    "sqlalchemy>=2.0",
+    # <2.1: SQLAlchemy 2.1 changed the bare postgresql:// default dialect from
+    # psycopg2 to psycopg (v3). This package ships psycopg2-binary, so 2.1
+    # breaks every bare postgres URL with ModuleNotFoundError at engine
+    # construction (#30). Lift the cap only with a deliberate driver migration.
+    "sqlalchemy>=2.0,<2.1",
     "psycopg2-binary>=2.9",   # PostgreSQL, included by default
     "keyring>=24.0",          # Secure credential storage
     "structlog>=24.0",        # Structured logging (stderr)

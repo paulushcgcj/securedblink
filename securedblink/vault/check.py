@@ -44,6 +44,39 @@ PROBE_STATEMENTS: dict[str, str] = {
 # Default probe statement for unknown dialects
 DEFAULT_PROBE = "SELECT 1"
 
+# Timeout keyword per driver, passed through connect_args. SQLAlchemy does not
+# accept a bare connect_timeout on create_engine(); it raises TypeError for
+# unknown keyword arguments. The names differ by driver - psycopg and PyMySQL
+# use connect_timeout, python-oracledb uses tcp_connect_timeout, pyodbc uses
+# timeout - so a single hardcoded name cannot be correct across dialects.
+DRIVER_TIMEOUT_KEYS: dict[str, str] = {
+    "mssql+pyodbc": "timeout",
+    "mssql+pymssql": "login_timeout",
+    "oracle+oracledb": "tcp_connect_timeout",
+    "oracle": "tcp_connect_timeout",
+    "postgresql+psycopg": "connect_timeout",
+    "postgresql+psycopg2": "connect_timeout",
+    "postgresql": "connect_timeout",
+    "mysql+pymysql": "connect_timeout",
+    "mysql": "connect_timeout",
+    "mariadb+pymysql": "connect_timeout",
+    "mariadb": "connect_timeout",
+}
+
+# Drivers that reject a fractional timeout value.
+_INT_TIMEOUT_DRIVERS = frozenset(
+    {
+        "mssql+pyodbc",
+        "mssql+pymssql",
+        "mysql",
+        "mysql+pymysql",
+        "mariadb",
+        "mariadb+pymysql",
+        "postgresql",
+        "postgresql+psycopg2",
+    }
+)
+
 
 @dataclass
 class ConnectionCheckResult:
@@ -121,6 +154,27 @@ def _should_skip_check() -> bool:
         True if checks should be skipped, False otherwise
     """
     return os.getenv(SKIP_CHECK_ENV_VAR, "").lower() in ("1", "true", "yes")
+
+
+def _engine_timeout_kwargs(dialect: str, timeout: float) -> dict[str, Any]:
+    """Build create_engine kwargs that bound the connection attempt.
+
+    The timeout travels inside ``connect_args`` under a driver-specific key.
+    Unknown drivers get no timeout kwarg at all: a guessed keyword is another
+    ``TypeError``, which is worse than falling back to the driver's default.
+
+    Args:
+        dialect: The drivername from the URL (e.g. ``oracle+oracledb``)
+        timeout: Connection timeout in seconds
+
+    Returns:
+        Keyword arguments for ``create_engine``; empty when no timeout applies
+    """
+    key = DRIVER_TIMEOUT_KEYS.get(dialect)
+    if key is None or timeout <= 0:
+        return {}
+    value: Any = int(timeout) if dialect in _INT_TIMEOUT_DRIVERS else timeout
+    return {"connect_args": {key: value}}
 
 
 def _build_engine_for_check(
@@ -228,14 +282,10 @@ def check_connection_reachability(
     # Note: We use a fresh engine for each check to avoid connection pooling issues
     engine: Engine | None = None
     try:
-        # For SQLite, we cannot use connect_timeout as it's not supported
-        # For other databases, we'll use the timeout in connect_args
-        engine_kwargs: dict[str, Any] = {}
-
-        # Only set timeout for non-SQLite databases
-        if dialect not in ("sqlite",) and timeout > 0:
-            # connect_timeout is supported by some database drivers
-            engine_kwargs["connect_timeout"] = timeout
+        # Bound the connect attempt with a driver-specific timeout inside
+        # connect_args. A top-level connect_timeout kwarg makes create_engine
+        # raise TypeError before any network access (#29).
+        engine_kwargs = _engine_timeout_kwargs(dialect, timeout)
 
         # Create engine - this doesn't actually connect yet
         engine = create_engine(normalized_url, **engine_kwargs)
