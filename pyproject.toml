@@ -109,7 +109,7 @@ exclude_lines = [
 
 [tool.ruff]
 line-length = 88
-target-version = "0.10.0"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
@@ -129,7 +129,7 @@ known-first-party = ["securedblink"]
 
 [tool.mypy]
 strict = true
-python_version = "0.10.0"
+python_version = "3.12"
 
 [[tool.mypy.overrides]]
 module = ["yaml", "keyring.*"]
