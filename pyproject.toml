@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "securedblink"
-version = "0.1.0"
+version = "0.10.0"
 description = "MCP server for multi-database access with LLM permission gating"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -109,7 +109,7 @@ exclude_lines = [
 
 [tool.ruff]
 line-length = 88
-target-version = "py312"
+target-version = "0.10.0"
 
 [tool.ruff.lint]
 select = [
@@ -129,7 +129,7 @@ known-first-party = ["securedblink"]
 
 [tool.mypy]
 strict = true
-python_version = "3.12"
+python_version = "0.10.0"
 
 [[tool.mypy.overrides]]
 module = ["yaml", "keyring.*"]

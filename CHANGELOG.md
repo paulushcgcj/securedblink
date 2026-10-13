@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.10.0] - 2026-10-12
+
 ### Features
 - Connection reachability check during vault registration, with an explicit
   save-anyway fallback when the target is unreachable (#20)
@@ -115,7 +117,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - docs: rewrite README with stronger structure and copy
 - docs: use run.sh as the launcher in README, explain why
 
-[Unreleased]: https://github.com/paulushcgcj/securedblink/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/paulushcgcj/securedblink/compare/v0.10.0...HEAD
+[v0.10.0]: https://github.com/paulushcgcj/securedblink/compare/v0.9.0...v0.10.0
 [v0.9.0]: https://github.com/paulushcgcj/securedblink/compare/v0.8.1...v0.9.0
 [v0.8.1]: https://github.com/paulushcgcj/securedblink/compare/v0.8.0...v0.8.1
 [v0.8.0]: https://github.com/paulushcgcj/securedblink/compare/v0.7.1...v0.8.0
