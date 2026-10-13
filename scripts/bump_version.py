@@ -5,10 +5,14 @@ Version bumping and release management script for securedblink.
 Usage:
     python scripts/bump_version.py [major|minor|patch|version] [--dry-run]
 
+The current version is read from the latest git tag, not from pyproject.toml:
+that file carries a placeholder which release.yml overwrites from the tag at
+build time, so the tags are what has actually shipped.
+
 Examples:
-    python scripts/bump_version.py patch           # Bump patch version (0.1.0 -> 0.1.1)
-    python scripts/bump_version.py minor           # Bump minor version (0.1.1 -> 0.2.0)
-    python scripts/bump_version.py major           # Bump major version (0.2.0 -> 1.0.0)
+    python scripts/bump_version.py patch           # Bump patch version (0.9.0 -> 0.9.1)
+    python scripts/bump_version.py minor           # Bump minor version (0.9.0 -> 0.10.0)
+    python scripts/bump_version.py major           # Bump major version (0.9.0 -> 1.0.0)
     python scripts/bump_version.py 0.9.1           # Set specific version
     python scripts/bump_version.py patch --dry-run # Preview changes without committing
 """
@@ -23,14 +27,47 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent.parent
 PYPROJECT_TOML = PROJECT_ROOT / "pyproject.toml"
 CHANGELOG_MD = PROJECT_ROOT / "CHANGELOG.md"
+REPO_URL = "https://github.com/paulushcgcj/securedblink"
 
 
 def get_current_version() -> str:
-    """Extract current version from pyproject.toml."""
+    """Return the latest released version, read from git tags.
+
+    pyproject.toml holds a placeholder that release.yml rewrites from the tag
+    during the build, so reading it here would compute the next version from a
+    stale number and publish something lower than the current release. The tags
+    are the source of truth for what has shipped.
+
+    Returns:
+        The version string of the most recent tag, without the leading ``v``
+
+    Raises:
+        ValueError: If no version can be determined from tags or pyproject.toml
+    """
+    result = subprocess.run(
+        ["git", "describe", "--tags", "--abbrev=0", "--match", "v*.*.*"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip().lstrip("v")
+
+    # No tags yet: this is a first release, so fall back to the manifest.
+    return _version_from_pyproject()
+
+
+def _version_from_pyproject() -> str:
+    """Extract the version placeholder from pyproject.toml.
+
+    Returns:
+        The version string declared in the project manifest
+
+    Raises:
+        ValueError: If no version line is present
+    """
     with open(PYPROJECT_TOML) as f:
         content = f.read()
 
-    # Find version line
     version_match = re.search(r'version = "([^"]+)"', content)
     if not version_match:
         raise ValueError("Could not find version in pyproject.toml")
@@ -39,9 +76,25 @@ def get_current_version() -> str:
 
 
 def bump_version(
-    current_version: str, bump_type: str = None, target_version: str = None
+    current_version: str,
+    bump_type: str | None = None,
+    target_version: str | None = None,
 ) -> str:
-    """Calculate new version based on bump type or target version."""
+    """Calculate new version based on bump type or target version.
+
+    Args:
+        current_version: The version to bump from
+        bump_type: One of ``major``, ``minor``, or ``patch``
+        target_version: An explicit version to set, taking precedence over
+            ``bump_type``
+
+    Returns:
+        The resulting version string
+
+    Raises:
+        ValueError: If neither argument is given, the bump type is unknown, or
+            a version string is not in ``X.Y.Z`` form
+    """
     if target_version:
         # Validate target version format
         if not re.match(r"^\d+\.\d+\.\d+$", target_version):
@@ -92,33 +145,58 @@ def update_pyproject_toml(new_version: str, dry_run: bool = False) -> None:
     print(f"Updated pyproject.toml version to {new_version}")
 
 
-def update_changelog(new_version: str, dry_run: bool = False) -> None:
-    """Update CHANGELOG.md with new version section."""
+def update_changelog(
+    new_version: str, previous_version: str, dry_run: bool = False
+) -> None:
+    """Promote the [Unreleased] entries into a dated section for this release.
+
+    The entries logged since the last release move into the new section and a
+    fresh empty [Unreleased] heading is left above them. Replacing the heading
+    with empty section stubs instead would silently discard everything
+    accumulated since the previous release.
+
+    Args:
+        new_version: The version being released
+        previous_version: The version it supersedes, used for the compare link
+        dry_run: Report what would change without writing
+    """
     with open(CHANGELOG_MD) as f:
         content = f.read()
 
-    # Find the Unreleased section
-    unreleased_pattern = r"## \[Unreleased\]"
-    if not re.search(unreleased_pattern, content):
+    # Capture the Unreleased heading and everything beneath it, up to the next
+    # version heading or end of file. The lookahead is not consumed, so the
+    # following section stays intact when the match is spliced back in.
+    section = re.search(
+        r"## \[Unreleased\]\n(?P<body>.*?)(?=\n## \[v|\Z)",
+        content,
+        re.DOTALL,
+    )
+    if section is None:
         print("Warning: No [Unreleased] section found in CHANGELOG.md")
         return
 
-    # Replace [Unreleased] with the new version and add new [Unreleased] section
+    body = section.group("body").strip()
+    if not body:
+        print("Warning: [Unreleased] section is empty; nothing to release")
+
     today = subprocess.run(
-        ["date", "+%Y-%m-%d"], capture_output=True, text=True
+        ["date", "+%Y-%m-%d"], capture_output=True, text=True, check=True
     ).stdout.strip()
 
-    new_content = re.sub(
-        unreleased_pattern,
-        f"## [v{new_version}] - {today}\n\n### Features\n\n### Fixed\n\n### Documentation\n\n### Dependencies\n\n## [Unreleased]",
-        content,
-    )
+    released = f"## [Unreleased]\n\n## [v{new_version}] - {today}\n\n{body}\n"
+    new_content = content[: section.start()] + released + content[section.end() :]
 
-    # Update the comparison link at the bottom
+    # Repoint [Unreleased] at the new tag and give the release a real compare
+    # range. The previous version is required here: a link ending in a bare
+    # "compare/" resolves to nothing.
     new_content = re.sub(
-        r"\[Unreleased\]:.*",
-        f"[Unreleased]: https://github.com/paulushcgcj/securedblink/compare/v{new_version}...HEAD\n[v{new_version}]: https://github.com/paulushcgcj/securedblink/compare/",
+        r"^\[Unreleased\]:.*$",
+        f"[Unreleased]: {REPO_URL}/compare/v{new_version}...HEAD\n"
+        f"[v{new_version}]: {REPO_URL}/compare/"
+        f"v{previous_version}...v{new_version}",
         new_content,
+        count=1,
+        flags=re.MULTILINE,
     )
 
     if dry_run:
@@ -131,8 +209,36 @@ def update_changelog(new_version: str, dry_run: bool = False) -> None:
     print(f"Updated CHANGELOG.md for version {new_version}")
 
 
+def push_branch(dry_run: bool = False) -> None:
+    """Push the current branch so the release commit reaches the remote.
+
+    Tagging without this leaves the release workflow building a commit that
+    the remote's default branch does not contain.
+
+    Args:
+        dry_run: Report what would happen without pushing
+    """
+    if dry_run:
+        print("[DRY RUN] Would push the current branch to origin")
+        return
+
+    branch = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    subprocess.run(["git", "push", "origin", branch], check=True)
+    print(f"Pushed {branch} to origin")
+
+
 def create_git_tag(new_version: str, dry_run: bool = False) -> None:
-    """Create and push git tag for the new version."""
+    """Create and push git tag for the new version.
+
+    Args:
+        new_version: The version to tag
+        dry_run: Report what would happen without tagging
+    """
     tag_name = f"v{new_version}"
 
     if dry_run:
@@ -151,7 +257,12 @@ def create_git_tag(new_version: str, dry_run: bool = False) -> None:
 
 
 def commit_changes(new_version: str, dry_run: bool = False) -> None:
-    """Commit version changes to git."""
+    """Commit version changes to git.
+
+    Args:
+        new_version: The version being recorded
+        dry_run: Report what would happen without committing
+    """
     if dry_run:
         print(f"[DRY RUN] Would commit version changes for {new_version}")
         return
@@ -165,7 +276,7 @@ def commit_changes(new_version: str, dry_run: bool = False) -> None:
     print(f"Committed version changes: {commit_message}")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Bump version and manage releases for securedblink"
     )
@@ -207,12 +318,17 @@ def main():
 
         # Update files
         update_pyproject_toml(new_version, args.dry_run)
-        update_changelog(new_version, args.dry_run)
+        update_changelog(new_version, current_version, args.dry_run)
 
         if not args.dry_run:
             # Commit changes if not in dry-run mode and not disabled
             if not args.no_commit:
                 commit_changes(new_version, args.dry_run)
+
+            # The release commit has to reach the remote before the tag does,
+            # otherwise the workflow builds a commit main does not contain.
+            if not args.no_commit:
+                push_branch(args.dry_run)
 
             # Create tag if not in dry-run mode and not disabled
             if not args.no_tag:
@@ -221,14 +337,14 @@ def main():
             print(f"\nVersion bumped to {new_version}")
             print("Next steps:")
             if args.no_commit:
-                print("  - Review changes and commit manually")
+                print("  - Review changes, commit them, and push the branch")
             if args.no_tag:
                 print(
-                    "  - Create git tag manually: git tag -a v{new_version} -m 'Release v{new_version}'"
+                    f"  - Create the git tag manually: git tag -a v{new_version} "
+                    f"-m 'Release v{new_version}'"
                 )
-            print("  - Push changes: git push origin main")
-            print("  - Push tag: git push origin v{new_version}")
-            print("  - The release workflow will trigger automatically on tag push")
+                print(f"  - Push the tag: git push origin v{new_version}")
+            print("  - The release workflow triggers automatically on tag push")
 
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
