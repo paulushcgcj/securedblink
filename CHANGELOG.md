@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.11.0] - 2026-10-13
+
+### Changed
+- **Breaking**: Migrate to SQLAlchemy 2.1+ with psycopg3 as the default PostgreSQL driver. The package now requires `sqlalchemy>=2.1` and `psycopg[binary]>=3.2` instead of `psycopg2-binary`. Bare `postgresql://` URLs are automatically normalized to `postgresql+psycopg://`, and bare `mysql://` URLs are normalized to `mysql+pymysql://`, making behavior explicit and independent of SQLAlchemy's shifting defaults (#31)
+
+### Fixed
+- Connection check timeout handling now supports psycopg3's fractional timeout values (psycopg2 only accepted integers)
+
 ## [v0.10.2] - 2026-10-12
 
 ### Fixed
