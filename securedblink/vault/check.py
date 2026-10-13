@@ -14,7 +14,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, Engine, make_url
 from sqlalchemy.exc import SQLAlchemyError
 
-from securedblink.connections import _normalize_oracle_url
+from securedblink.connections import _normalize_url
 from securedblink.log import get_logger
 from securedblink.vault.redact import redact_exception, redact_string
 
@@ -46,7 +46,7 @@ DEFAULT_PROBE = "SELECT 1"
 
 # Timeout keyword per driver, passed through connect_args. SQLAlchemy does not
 # accept a bare connect_timeout on create_engine(); it raises TypeError for
-# unknown keyword arguments. The names differ by driver - psycopg and PyMySQL
+# unknown keyword arguments. The names differ by driver - psycopg (v3) and PyMySQL
 # use connect_timeout, python-oracledb uses tcp_connect_timeout, pyodbc uses
 # timeout - so a single hardcoded name cannot be correct across dialects.
 DRIVER_TIMEOUT_KEYS: dict[str, str] = {
@@ -64,6 +64,7 @@ DRIVER_TIMEOUT_KEYS: dict[str, str] = {
 }
 
 # Drivers that reject a fractional timeout value.
+# psycopg3 (psycopg) accepts fractional timeout values, unlike psycopg2.
 _INT_TIMEOUT_DRIVERS = frozenset(
     {
         "mssql+pyodbc",
@@ -185,7 +186,7 @@ def _build_engine_for_check(
     """Build a SQLAlchemy URL for connection checking.
 
     This uses the same normalization path as the runtime query path,
-    including Oracle URL normalization.
+    including PostgreSQL/MySQL driver normalization and Oracle URL normalization.
 
     Args:
         jdbc_url: The JDBC connection URL
@@ -210,8 +211,8 @@ def _build_engine_for_check(
         if password:
             url = url.set(password=password)
 
-    # Normalize Oracle URLs the same way as runtime
-    return _normalize_oracle_url(url)
+    # Normalize URLs the same way as runtime (PostgreSQL, MySQL, Oracle)
+    return _normalize_url(url)
 
 
 def check_connection_reachability(

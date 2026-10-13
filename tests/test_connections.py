@@ -10,6 +10,9 @@ from securedblink.connections import (
     ConnectionManager,
     _load_urls,
     _normalize_oracle_url,
+    _normalize_postgresql_url,
+    _normalize_mysql_url,
+    _normalize_url,
 )
 
 
@@ -211,3 +214,111 @@ class TestOracleServiceNameRegression:
         engine = manager.engine("warehouse")
         assert engine.url.query["service_name"] == "warehouse"
         assert not engine.url.database
+
+
+class TestNormalizePostgresqlUrl:
+    """PostgreSQL URL normalization for SQLAlchemy 2.1+ compatibility."""
+
+    def test_bare_postgresql_becomes_psycopg(self):
+        url = _normalize_postgresql_url(make_url("postgresql://user:pass@host:5432/db"))
+        assert url.drivername == "postgresql+psycopg"
+
+    def test_explicit_psycopg_unchanged(self):
+        url = _normalize_postgresql_url(
+            make_url("postgresql+psycopg://user:pass@host:5432/db")
+        )
+        assert url.drivername == "postgresql+psycopg"
+
+    def test_explicit_psycopg2_unchanged(self):
+        url = _normalize_postgresql_url(
+            make_url("postgresql+psycopg2://user:pass@host:5432/db")
+        )
+        assert url.drivername == "postgresql+psycopg2"
+
+    def test_non_postgresql_urls_pass_through(self):
+        url = _normalize_postgresql_url(make_url("oracle://user:pass@host:1521/db"))
+        assert url.drivername == "oracle"
+
+
+class TestNormalizeMysqlUrl:
+    """MySQL URL normalization for explicit driver specification."""
+
+    def test_bare_mysql_becomes_pymysql(self):
+        url = _normalize_mysql_url(make_url("mysql://user:pass@host:3306/db"))
+        assert url.drivername == "mysql+pymysql"
+
+    def test_explicit_pymysql_unchanged(self):
+        url = _normalize_mysql_url(make_url("mysql+pymysql://user:pass@host:3306/db"))
+        assert url.drivername == "mysql+pymysql"
+
+    def test_explicit_mysqlclient_unchanged(self):
+        url = _normalize_mysql_url(make_url("mysql+mysqlclient://user:pass@host:3306/db"))
+        assert url.drivername == "mysql+mysqlclient"
+
+    def test_non_mysql_urls_pass_through(self):
+        url = _normalize_mysql_url(make_url("postgresql://user:pass@host:5432/db"))
+        assert url.drivername == "postgresql"
+
+
+class TestNormalizeUrl:
+    """Full URL normalization pipeline."""
+
+    def test_postgresql_normalization(self):
+        url = _normalize_url(make_url("postgresql://user:pass@host:5432/db"))
+        assert url.drivername == "postgresql+psycopg"
+
+    def test_mysql_normalization(self):
+        url = _normalize_url(make_url("mysql://user:pass@host:3306/db"))
+        assert url.drivername == "mysql+pymysql"
+
+    def test_oracle_normalization(self):
+        url = _normalize_url(make_url("oracle://host:1521/service"))
+        assert url.query["service_name"] == "service"
+        assert not url.database
+
+    def test_combined_normalization(self):
+        # PostgreSQL + Oracle normalization shouldn't conflict
+        url = _normalize_url(make_url("postgresql://user:pass@host:5432/db"))
+        assert url.drivername == "postgresql+psycopg"
+        assert url.database == "db"
+
+    def test_already_explicit_urls_unchanged(self):
+        url = _normalize_url(
+            make_url("postgresql+psycopg://user:pass@host:5432/db")
+        )
+        assert url.drivername == "postgresql+psycopg"
+        assert url.database == "db"
+
+
+class TestPostgresqlNormalizationIntegration:
+    """Integration tests for PostgreSQL URL normalization in engine creation."""
+
+    def test_env_bare_postgresql_normalized(self, monkeypatch):
+        monkeypatch.setenv("DB_TEST", "postgresql://user:pass@host:5432/db")
+        manager = ConnectionManager()
+        engine = manager.engine("test")
+        assert engine.url.drivername == "postgresql+psycopg"
+
+    def test_vault_bare_postgresql_normalized(self):
+        vault = Mock()
+        vault.get.return_value = {
+            "jdbc_url": "postgresql://user:pass@host:5432/db",
+            "username": "app",
+            "password": "secret",
+        }
+        vault.exists.return_value = True
+        with patch("securedblink.vault.get_vault_store", return_value=vault):
+            manager = ConnectionManager()
+            engine = manager.get_engine_by_alias("test")
+            assert engine.url.drivername == "postgresql+psycopg"
+            assert engine.url.username == "app"
+
+    def test_mysql_normalization_integration(self, monkeypatch):
+        """Test that MySQL URL is normalized before engine creation."""
+        from sqlalchemy.engine import make_url
+        from securedblink.connections import _normalize_url
+        
+        # Test the normalization directly without creating an engine
+        url = make_url("mysql://user:pass@host:3306/db")
+        normalized = _normalize_url(url)
+        assert normalized.drivername == "mysql+pymysql"
