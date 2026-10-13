@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `vault_update_connection` now runs the reachability check against the merged
+  configuration before writing, with `skip_check` and `force_save` matching the
+  registration tools. A bad rotation fails at update time instead of at the
+  next query (#27)
+- `VaultStore.update` docstring corrected: `None` means "leave unchanged";
+  clearing a field requires an empty string
+- Release tooling repaired after the v0.10.0 bump overwrote ruff's
+  `target-version` and mypy's `python_version`: the version substitution is now
+  anchored to the project key and fails loudly without exactly one match, the
+  changelog promotion preserves accumulated entries, and `uv.lock` is kept in
+  sync with each release
+
+### Changed
+- The test suite no longer writes a `./db` file into the repository root, and
+  the gitignore entry that masked it was removed so any regression is visible
+
 ## [v0.10.0] - 2026-10-12
 
 ### Features
