@@ -387,10 +387,17 @@ class TestToolsInvalidate:
     def test_update_connection_invalidates(self):
         """Issue #21 added this path after #22 was filed, without invalidating."""
         vault = MagicMock()
-        vault.get.return_value = {"jdbc_url": "sqlite:///db", "username": "app"}
+        vault.get.return_value = {"jdbc_url": "sqlite:///:memory:", "username": "app"}
         manager = MagicMock()
         manager.invalidate.return_value = 1
-        with patch.object(srv, "_vault", vault), patch.object(srv, "_db", manager):
+        with (
+            patch.object(srv, "_vault", vault),
+            patch.object(srv, "_db", manager),
+            patch(
+                "securedblink.server.verify_and_update_connection",
+                return_value=(True, None),
+            ),
+        ):
             result = srv.vault_update_connection("prod", password="rotated")
         manager.invalidate.assert_called_once_with("prod")
         assert result["status"] == "updated"
