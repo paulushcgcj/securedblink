@@ -129,11 +129,33 @@ def bump_version(
 
 
 def update_pyproject_toml(new_version: str, dry_run: bool = False) -> None:
-    """Update version in pyproject.toml."""
+    """Update the project version in pyproject.toml.
+
+    Only a ``version`` key at the start of a line is rewritten, and only once.
+    An unanchored pattern also matches ``target-version`` (ruff) and
+    ``python_version`` (mypy), so a global substitution replaces tool
+    configuration with a release number and breaks linting and type checking
+    across the whole repository.
+
+    Args:
+        new_version: The version to record
+        dry_run: Report what would change without writing
+
+    Raises:
+        ValueError: If the project version line is not present exactly once
+    """
     with open(PYPROJECT_TOML) as f:
         content = f.read()
 
-    new_content = re.sub(r'version = "[^"]+"', f'version = "{new_version}"', content)
+    pattern = re.compile(r'^version = "[^"]+"', re.MULTILINE)
+    found = pattern.findall(content)
+    if len(found) != 1:
+        raise ValueError(
+            f"Expected exactly one top-level version line in pyproject.toml, "
+            f"found {len(found)}. Refusing to guess which one to rewrite."
+        )
+
+    new_content = pattern.sub(f'version = "{new_version}"', content, count=1)
 
     if dry_run:
         print(f"[DRY RUN] Would update pyproject.toml version to {new_version}")
@@ -256,6 +278,24 @@ def create_git_tag(new_version: str, dry_run: bool = False) -> None:
     print(f"Pushed git tag {tag_name} to origin")
 
 
+def sync_lockfile(dry_run: bool = False) -> None:
+    """Regenerate uv.lock so it matches the bumped pyproject version.
+
+    The lock records the project's own version. Skipping this leaves it
+    pinned to whatever placeholder was committed last, and every later
+    ``uv sync`` regenerates the diff and dirties the working tree.
+
+    Args:
+        dry_run: Report what would happen without regenerating
+    """
+    if dry_run:
+        print("[DRY RUN] Would regenerate uv.lock")
+        return
+
+    subprocess.run(["uv", "lock"], check=True)
+    print("Regenerated uv.lock")
+
+
 def commit_changes(new_version: str, dry_run: bool = False) -> None:
     """Commit version changes to git.
 
@@ -268,7 +308,16 @@ def commit_changes(new_version: str, dry_run: bool = False) -> None:
         return
 
     # Add changed files
-    subprocess.run(["git", "add", str(PYPROJECT_TOML), str(CHANGELOG_MD)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "add",
+            str(PYPROJECT_TOML),
+            str(CHANGELOG_MD),
+            str(PROJECT_ROOT / "uv.lock"),
+        ],
+        check=True,
+    )
 
     # Commit
     commit_message = f"chore(release): bump version to v{new_version}"
@@ -319,6 +368,7 @@ def main() -> None:
         # Update files
         update_pyproject_toml(new_version, args.dry_run)
         update_changelog(new_version, current_version, args.dry_run)
+        sync_lockfile(args.dry_run)
 
         if not args.dry_run:
             # Commit changes if not in dry-run mode and not disabled
