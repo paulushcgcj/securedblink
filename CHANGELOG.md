@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.10.2] - 2026-10-12
+
 ### Fixed
 - The registration reachability check no longer fails with `TypeError` before
   reaching the network. Connection timeouts are passed in `connect_args` under
@@ -153,7 +155,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - docs: rewrite README with stronger structure and copy
 - docs: use run.sh as the launcher in README, explain why
 
-[Unreleased]: https://github.com/paulushcgcj/securedblink/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/paulushcgcj/securedblink/compare/v0.10.2...HEAD
+[v0.10.2]: https://github.com/paulushcgcj/securedblink/compare/v0.10.1...v0.10.2
 [v0.10.1]: https://github.com/paulushcgcj/securedblink/compare/v0.10.0...v0.10.1
 [v0.10.0]: https://github.com/paulushcgcj/securedblink/compare/v0.9.0...v0.10.0
 [v0.9.0]: https://github.com/paulushcgcj/securedblink/compare/v0.8.1...v0.9.0
