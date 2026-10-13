@@ -7,12 +7,14 @@ import json
 import time
 from unittest.mock import MagicMock, patch
 
+import pytest
 from sqlalchemy import create_engine, text
 
 from securedblink.vault.check import (
     DEFAULT_CHECK_TIMEOUT,
     ConnectionCheckResult,
     _build_engine_for_check,
+    _engine_timeout_kwargs,
     _get_probe_statement,
     _get_timeout,
     _should_skip_check,
@@ -278,14 +280,21 @@ class TestCheckConnectionReachability:
         assert result.check_duration <= 1.0
 
     def test_check_redacts_url_in_error(self):
-        """Error messages should not contain the original URL with credentials."""
+        """Error messages must not contain the password or the credentials URL.
+
+        The username may appear: database servers quote it in their own
+        authentication errors ("password authentication failed for user ..."),
+        and the project's redaction contract deliberately keeps usernames
+        visible while masking passwords (see test_redact_url_credentials).
+        """
         url = "postgresql://testuser:testpass@localhost:5432/testdb"
         result = check_connection_reachability(url)
 
-        # Whether it succeeds or fails, the error should not contain the password
+        # Whether it succeeds or fails, the secret must never surface
         if result.error:
             assert "testpass" not in result.error
-            assert "[REDACTED]" in result.error or "testuser" not in result.error
+            assert "testuser:testpass" not in result.error
+            assert url not in result.error
 
 
 # ---------------------------------------------------------------------------
@@ -807,6 +816,98 @@ class TestTimeoutHandling:
 
         assert result.success is True
         assert result.check_duration < 10  # Should be much less than default 5s
+
+
+# ---------------------------------------------------------------------------
+# Connect Timeout Argument Tests (issue #29)
+# ---------------------------------------------------------------------------
+
+
+class TestConnectTimeoutArgs:
+    """The timeout must reach the driver, not create_engine itself.
+
+    A top-level ``connect_timeout`` kwarg made ``create_engine`` raise TypeError
+    before any network access, which failed every non-SQLite reachability check.
+    SQLite skips the timeout branch entirely, so a SQLite-only suite could not
+    see it.
+    """
+
+    def test_never_passes_a_toplevel_connect_timeout(self):
+        """Regression: the kwarg that produced the TypeError is gone."""
+        engine = create_engine("sqlite:///:memory:")
+        with (
+            patch("securedblink.vault.check.create_engine", return_value=engine) as ce,
+            patch.object(engine, "dispose"),
+        ):
+            check_connection_reachability("postgresql://u@h:5432/db", timeout=3)
+        assert "connect_timeout" not in ce.call_args.kwargs
+        assert set(ce.call_args.kwargs) <= {"connect_args"}
+
+    @pytest.mark.parametrize(
+        ("url", "expected_key"),
+        [
+            ("postgresql://u@h:5432/db", "connect_timeout"),
+            ("postgresql+psycopg2://u@h/db", "connect_timeout"),
+            ("mysql+pymysql://u@h/db", "connect_timeout"),
+            ("oracle+oracledb://u@h:1521/?service_name=S", "tcp_connect_timeout"),
+            ("mssql+pyodbc://u@h/db", "timeout"),
+        ],
+    )
+    def test_driver_specific_timeout_key(self, url, expected_key):
+        engine = create_engine("sqlite:///:memory:")
+        with (
+            patch("securedblink.vault.check.create_engine", return_value=engine) as ce,
+            patch.object(engine, "dispose"),
+        ):
+            check_connection_reachability(url, timeout=4)
+        assert ce.call_args.kwargs == {"connect_args": {expected_key: 4}}
+
+    def test_sqlite_gets_no_connect_args(self):
+        engine = create_engine("sqlite:///:memory:")
+        with (
+            patch("securedblink.vault.check.create_engine", return_value=engine) as ce,
+            patch.object(engine, "dispose"),
+        ):
+            check_connection_reachability("sqlite:///:memory:", timeout=4)
+        assert ce.call_args.kwargs == {}
+
+    def test_unknown_driver_gets_no_timeout_kwarg(self):
+        """A guessed keyword is another TypeError; driver default is safer."""
+        assert _engine_timeout_kwargs("snowflake", 5.0) == {}
+        assert _engine_timeout_kwargs("cockroachdb", 5.0) == {}
+
+    @pytest.mark.parametrize(
+        ("dialect", "timeout", "expected"),
+        [
+            ("postgresql", 5.5, {"connect_args": {"connect_timeout": 5}}),
+            ("postgresql+psycopg2", 5.5, {"connect_args": {"connect_timeout": 5}}),
+            ("mysql+pymysql", 2.9, {"connect_args": {"connect_timeout": 2}}),
+            ("mssql+pyodbc", 3.7, {"connect_args": {"timeout": 3}}),
+            ("oracle+oracledb", 5.5, {"connect_args": {"tcp_connect_timeout": 5.5}}),
+            ("postgresql+psycopg", 5.5, {"connect_args": {"connect_timeout": 5.5}}),
+        ],
+    )
+    def test_fractional_timeouts_coerced_per_driver(self, dialect, timeout, expected):
+        """psycopg2, PyMySQL and pyodbc reject a fractional timeout."""
+        assert _engine_timeout_kwargs(dialect, timeout) == expected
+
+    @pytest.mark.parametrize("timeout", [0, -1])
+    def test_nonpositive_timeout_adds_no_kwargs(self, timeout):
+        assert _engine_timeout_kwargs("postgresql", timeout) == {}
+        assert _engine_timeout_kwargs("oracle+oracledb", timeout) == {}
+
+    def test_oracle_check_no_longer_fails_with_typeerror(self):
+        """The reported symptom: Oracle failed in ~0.0s with TypeError."""
+        engine = create_engine("sqlite:///:memory:")
+        with (
+            patch("securedblink.vault.check.create_engine", return_value=engine) as ce,
+            patch.object(engine, "dispose"),
+        ):
+            result = check_connection_reachability(
+                "oracle+oracledb://u:p@h:1521/?service_name=SVC", timeout=5
+            )
+        assert result.error_type != "TypeError"
+        assert ce.call_args.kwargs == {"connect_args": {"tcp_connect_timeout": 5.0}}
 
 
 # ---------------------------------------------------------------------------
