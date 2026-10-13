@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.engine import URL, make_url
+from sqlalchemy.engine import URL, Engine, make_url
 from sqlalchemy.exc import SQLAlchemyError
 
 from securedblink.connections import _normalize_oracle_url
@@ -226,6 +226,7 @@ def check_connection_reachability(
 
     # Create engine for connection check
     # Note: We use a fresh engine for each check to avoid connection pooling issues
+    engine: Engine | None = None
     try:
         # For SQLite, we cannot use connect_timeout as it's not supported
         # For other databases, we'll use the timeout in connect_args
@@ -306,6 +307,18 @@ def check_connection_reachability(
             check_duration=check_duration,
             dialect=dialect,
         )
+
+    finally:
+        # The `with engine.connect()` block returns the connection to this
+        # engine's pool but does not close the pool, and the engine is thrown
+        # away on every call. Without dispose() each registration check leaks a
+        # pool for the life of the process.
+        if engine is not None:
+            try:
+                engine.dispose()
+            except Exception as exc:
+                # Cleanup must not mask the check result being returned.
+                log.warning("check_engine_dispose_failed", error=type(exc).__name__)
 
 
 def verify_and_store_connection(

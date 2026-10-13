@@ -466,7 +466,14 @@ class TestVaultTools:
             revoked = srv.vault_revoke("prod")
         assert listed["aliases"][0]["name"] == "local"
         assert listed["aliases"][0]["created_at"] == "unknown"
-        assert revoked == {"alias": "prod", "status": "revoked", "existed": True}
+        assert revoked == {
+            "alias": "prod",
+            "status": "revoked",
+            "existed": True,
+            # Auditable proof the cached pool was closed, not just de-listed.
+            # Zero here because this test never built an engine for the alias.
+            "engines_disposed": 0,
+        }
         vault.delete.assert_called_once_with("prod")
 
     def test_vault_update_connection_success(self):

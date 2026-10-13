@@ -11,6 +11,10 @@ from typing import Any
 
 import keyring.backends
 
+from securedblink.log import get_logger
+
+log = get_logger(__name__)
+
 # Service name for keyring
 _SERVICE_NAME = "securedblink"
 
@@ -373,6 +377,21 @@ class VaultStore:
             ).isoformat()
             self._save_index()
 
+    def _remove_index_entry(self, alias: str) -> bool:
+        """Drop the alias from the index. Expects an already-lowercased alias.
+
+        Args:
+            alias: The lowercased alias to remove
+
+        Returns:
+            True if an index entry was removed
+        """
+        if alias not in self._index:
+            return False
+        del self._index[alias]
+        self._save_index()
+        return True
+
     def delete(self, alias: str) -> bool:
         """Delete a connection configuration.
 
@@ -381,6 +400,14 @@ class VaultStore:
 
         Returns:
             True if the alias was deleted, False if it didn't exist
+
+        Raises:
+            VaultStoreError: If the secret could not be removed from the OS
+                credential manager. The index entry is removed either way, so a
+                raised error means the alias is de-listed while the credential
+                may still be recoverable from the keyring and must be rotated.
+                Reporting that as a clean revocation is what lets an operator
+                believe a leaked credential has been cut off when it has not.
         """
         alias = alias.lower()
 
@@ -389,14 +416,26 @@ class VaultStore:
         try:
             keyring.delete_password(_SERVICE_NAME, alias)
             deleted_keyring = True
-        except keyring.errors.KeyringError:
+        except keyring.errors.PasswordDeleteError:
+            # The credential manager had no such entry. Benign: the alias index
+            # is still the authority on whether anything needed removing.
             pass
+        except keyring.errors.KeyringError as e:
+            # A locked or unusable backend is a real failure, not a missing
+            # entry. De-list the alias so it stops resolving, then surface the
+            # surviving secret instead of reporting success.
+            log.warning(
+                "vault_keyring_delete_failed", alias=alias, error=type(e).__name__
+            )
+            self._remove_index_entry(alias)
+            raise VaultStoreError(
+                f"Alias '{alias}' was removed from the index, but the stored "
+                f"secret could not be deleted from the credential manager "
+                f"({type(e).__name__}). Rotate that credential."
+            ) from e
 
         # Delete from index
-        deleted_index = alias in self._index
-        if deleted_index:
-            del self._index[alias]
-            self._save_index()
+        deleted_index = self._remove_index_entry(alias)
 
         return deleted_keyring or deleted_index
 
