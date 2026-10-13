@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- The registration reachability check no longer fails with `TypeError` before
+  reaching the network. Connection timeouts are passed in `connect_args` under
+  the driver's own keyword (`connect_timeout`, `tcp_connect_timeout`,
+  `timeout`/`login_timeout`), so Oracle, PostgreSQL, MySQL, and MSSQL checks
+  now genuinely test the database (#29)
+- SQLAlchemy is capped below 2.1: the 2.1 release switched the bare
+  `postgresql://` dialect default from psycopg2 to psycopg v3, which broke
+  fresh installs with `ModuleNotFoundError` (#30). The deliberate migration is
+  tracked in #31
+
+### Changed
+- The redaction test asserts the real invariant: the password, the credentials
+  pair, and the full URL never appear in check errors. Usernames may appear,
+  because database servers quote them in their own authentication failures and
+  this project's redaction policy deliberately keeps usernames visible
+
 ## [v0.10.1] - 2026-10-12
 
 ### Fixed
