@@ -9,9 +9,9 @@ from sqlalchemy.engine import make_url
 from securedblink.connections import (
     ConnectionManager,
     _load_urls,
+    _normalize_mysql_url,
     _normalize_oracle_url,
     _normalize_postgresql_url,
-    _normalize_mysql_url,
     _normalize_url,
 )
 
@@ -252,7 +252,9 @@ class TestNormalizeMysqlUrl:
         assert url.drivername == "mysql+pymysql"
 
     def test_explicit_mysqlclient_unchanged(self):
-        url = _normalize_mysql_url(make_url("mysql+mysqlclient://user:pass@host:3306/db"))
+        url = _normalize_mysql_url(
+            make_url("mysql+mysqlclient://user:pass@host:3306/db")
+        )
         assert url.drivername == "mysql+mysqlclient"
 
     def test_non_mysql_urls_pass_through(self):
@@ -283,9 +285,7 @@ class TestNormalizeUrl:
         assert url.database == "db"
 
     def test_already_explicit_urls_unchanged(self):
-        url = _normalize_url(
-            make_url("postgresql+psycopg://user:pass@host:5432/db")
-        )
+        url = _normalize_url(make_url("postgresql+psycopg://user:pass@host:5432/db"))
         assert url.drivername == "postgresql+psycopg"
         assert url.database == "db"
 
@@ -316,8 +316,9 @@ class TestPostgresqlNormalizationIntegration:
     def test_mysql_normalization_integration(self, monkeypatch):
         """Test that MySQL URL is normalized before engine creation."""
         from sqlalchemy.engine import make_url
+
         from securedblink.connections import _normalize_url
-        
+
         # Test the normalization directly without creating an engine
         url = make_url("mysql://user:pass@host:3306/db")
         normalized = _normalize_url(url)
