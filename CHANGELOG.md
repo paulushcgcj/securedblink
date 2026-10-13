@@ -7,9 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Features
+- Connection reachability check during vault registration, with an explicit
+  save-anyway fallback when the target is unreachable (#20)
+- Partial update of an existing vault connection via `vault_update_connection`,
+  so a single field such as the password can be rotated on its own (#21)
+
 ### Fixed
-- fix(#21): add partial update functionality for existing connections (#25)
-- fix(#20): Add connection reachability checks and verification utilities (#24)
+- Cached engines are now invalidated and disposed on vault mutation, so
+  revoking or rotating a credential takes effect without a server restart.
+  Previously `vault_revoke` reported success while an authenticated connection
+  pool stayed usable, and `overwrite=true` rotation silently did nothing (#22)
+- `VaultStore.delete` no longer reports a clean revocation when the OS
+  credential manager refused to delete the secret (#22)
+- The registration reachability check disposes its throwaway engine, which
+  previously leaked a connection pool per check (#22)
 
 ### Dependencies
 - chore(deps): bump pyjwt (#19)
