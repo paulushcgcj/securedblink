@@ -94,6 +94,64 @@ def _normalize_oracle_url(url: URL) -> URL:
     return url.set(database="").update_query_dict({"service_name": url.database})
 
 
+def _normalize_postgresql_url(url: URL) -> URL:
+    """Normalize PostgreSQL URLs to use explicit driver specification.
+
+    SQLAlchemy 2.1 changed the default driver for bare ``postgresql://`` URLs
+    from psycopg2 to psycopg3. To make behavior explicit and independent of
+    SQLAlchemy version defaults, rewrite bare ``postgresql://`` to
+    ``postgresql+psycopg://``. URLs that already specify a driver are left
+    unchanged.
+
+    Args:
+        url: The SQLAlchemy URL to normalize
+
+    Returns:
+        Normalized URL with explicit driver specification
+    """
+    if url.drivername == "postgresql":
+        return url.set(drivername="postgresql+psycopg")
+    return url
+
+
+def _normalize_mysql_url(url: URL) -> URL:
+    """Normalize MySQL URLs to use explicit driver specification.
+
+    Bare ``mysql://`` URLs default to mysqlclient, which this package does not
+    ship. To make behavior explicit and avoid silent failures, rewrite bare
+    ``mysql://`` to ``mysql+pymysql://``. URLs that already specify a driver
+    are left unchanged.
+
+    Args:
+        url: The SQLAlchemy URL to normalize
+
+    Returns:
+        Normalized URL with explicit driver specification
+    """
+    if url.drivername == "mysql":
+        return url.set(drivername="mysql+pymysql")
+    return url
+
+
+def _normalize_url(url: URL) -> URL:
+    """Apply all URL normalizations in sequence.
+
+    This is the single entry point for URL normalization, applying:
+    1. PostgreSQL driver normalization (bare postgresql:// -> postgresql+psycopg://)
+    2. MySQL driver normalization (bare mysql:// -> mysql+pymysql://)
+    3. Oracle service name normalization
+
+    Args:
+        url: The SQLAlchemy URL to normalize
+
+    Returns:
+        Fully normalized URL
+    """
+    url = _normalize_postgresql_url(url)
+    url = _normalize_mysql_url(url)
+    return _normalize_oracle_url(url)
+
+
 class ConnectionManager:
     """Resolve connection names to cached SQLAlchemy engines.
 
@@ -250,7 +308,7 @@ class ConnectionManager:
             url = url.set(username=username)
         if password:
             url = url.set(password=password)
-        return create_engine(_normalize_oracle_url(url))
+        return create_engine(_normalize_url(url))
 
     def _resolve_vault_engine(
         self, vault: "VaultStore", alias: str, stale: list[Engine]
@@ -345,7 +403,7 @@ class ConnectionManager:
                     f"or use vault_register_connection to add via vault."
                 )
             self._engines[key] = create_engine(
-                _normalize_oracle_url(make_url(self._urls[key]))
+                _normalize_url(make_url(self._urls[key]))
             )
         return self._engines[key]
 

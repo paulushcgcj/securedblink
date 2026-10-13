@@ -117,9 +117,10 @@ class TestUrlBuilding:
         assert url.database == "./test.db"
 
     def test_build_url_with_credentials(self):
-        """URL with embedded credentials should be preserved."""
+        """URL with embedded credentials should be preserved and normalized."""
         url = _build_engine_for_check("postgresql://user:pass@localhost/db")
-        assert url.drivername == "postgresql"
+        # Bare postgresql:// should be normalized to postgresql+psycopg://
+        assert url.drivername == "postgresql+psycopg"
         assert url.username == "user"
         assert url.password == "pass"
         assert url.host == "localhost"
@@ -158,6 +159,26 @@ class TestUrlBuilding:
 
     def test_oracle_url_with_sid(self):
         """Oracle URLs with explicit sid should not be modified."""
+
+    def test_postgresql_url_normalization(self):
+        """Bare PostgreSQL URLs should be normalized to use psycopg driver."""
+        url = _build_engine_for_check("postgresql://user:pass@localhost/db")
+        assert url.drivername == "postgresql+psycopg"
+
+    def test_postgresql_explicit_driver_unchanged(self):
+        """PostgreSQL URLs with explicit driver should not be modified."""
+        url = _build_engine_for_check("postgresql+psycopg://user:pass@localhost/db")
+        assert url.drivername == "postgresql+psycopg"
+
+    def test_mysql_url_normalization(self):
+        """Bare MySQL URLs should be normalized to use pymysql driver."""
+        url = _build_engine_for_check("mysql://user:pass@localhost/db")
+        assert url.drivername == "mysql+pymysql"
+
+    def test_mysql_explicit_driver_unchanged(self):
+        """MySQL URLs with explicit driver should not be modified."""
+        url = _build_engine_for_check("mysql+pymysql://user:pass@localhost/db")
+        assert url.drivername == "mysql+pymysql"
         url = _build_engine_for_check(
             "oracle+oracledb://user:pass@host:1521/?sid=mysid"
         )
@@ -847,6 +868,7 @@ class TestConnectTimeoutArgs:
         ("url", "expected_key"),
         [
             ("postgresql://u@h:5432/db", "connect_timeout"),
+            ("postgresql+psycopg://u@h/db", "connect_timeout"),
             ("postgresql+psycopg2://u@h/db", "connect_timeout"),
             ("mysql+pymysql://u@h/db", "connect_timeout"),
             ("oracle+oracledb://u@h:1521/?service_name=S", "tcp_connect_timeout"),
@@ -881,14 +903,14 @@ class TestConnectTimeoutArgs:
         [
             ("postgresql", 5.5, {"connect_args": {"connect_timeout": 5}}),
             ("postgresql+psycopg2", 5.5, {"connect_args": {"connect_timeout": 5}}),
+            ("postgresql+psycopg", 5.5, {"connect_args": {"connect_timeout": 5.5}}),
             ("mysql+pymysql", 2.9, {"connect_args": {"connect_timeout": 2}}),
             ("mssql+pyodbc", 3.7, {"connect_args": {"timeout": 3}}),
             ("oracle+oracledb", 5.5, {"connect_args": {"tcp_connect_timeout": 5.5}}),
-            ("postgresql+psycopg", 5.5, {"connect_args": {"connect_timeout": 5.5}}),
         ],
     )
     def test_fractional_timeouts_coerced_per_driver(self, dialect, timeout, expected):
-        """psycopg2, PyMySQL and pyodbc reject a fractional timeout."""
+        """psycopg2, PyMySQL and pyodbc reject a fractional timeout; psycopg3 accepts it."""
         assert _engine_timeout_kwargs(dialect, timeout) == expected
 
     @pytest.mark.parametrize("timeout", [0, -1])

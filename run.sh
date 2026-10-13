@@ -66,9 +66,9 @@ driver_for_url() {
     # ── PostgreSQL ────────────────────────────────────────────────────────
     postgresql+asyncpg://*)
       echo "asyncpg|asyncpg" ;;
-    postgresql+psycopg://*)
+    postgresql+psycopg://*|postgresql://*)
       echo "psycopg|psycopg[binary]" ;;
-    postgresql+psycopg2://*|postgresql://*)
+    postgresql+psycopg2://*)
       echo "psycopg2|psycopg2-binary" ;;
 
     # ── SQLite (built-in — no driver needed) ──────────────────────────────
@@ -133,7 +133,7 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 # PHASE 1 — Core dependencies
 #
-# uv sync installs mcp, sqlalchemy, psycopg2-binary (from pyproject.toml).
+# uv sync installs mcp, sqlalchemy, psycopg[binary] (from pyproject.toml).
 # stdout suppressed — MCP stdio must stay clean.
 # ─────────────────────────────────────────────────────────────────────────────
 log "Syncing core dependencies..."
